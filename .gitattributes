@@ -1,0 +1,15 @@
+# Normalize to LF in the repository and in the working tree, on every platform.
+# Without this, a Windows checkout with core.autocrlf=true gets CRLF, which
+# contradicts .editorconfig and makes prettier and rustfmt disagree with CI.
+* text=auto eol=lf
+
+# Lockfiles are generated; keep them out of diffs and merges.
+client/package-lock.json -diff linguist-generated
+server/Cargo.lock        -diff linguist-generated
+
+# Binary assets, in case any land here later.
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff  binary
+*.woff2 binary

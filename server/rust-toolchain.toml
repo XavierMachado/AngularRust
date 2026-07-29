@@ -1,0 +1,6 @@
+# Pinned so everyone builds against the same compiler. wtransport 0.7 and its
+# rustls/quinn dependencies need a reasonably recent one: 0.7.1 itself declares
+# 1.88, and rcgen and time agree, so anything below that fails to resolve.
+[toolchain]
+channel = "1.95"
+components = ["rustfmt", "clippy"]

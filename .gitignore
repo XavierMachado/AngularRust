@@ -1,0 +1,20 @@
+# Rust
+/server/target/
+
+# Angular
+/client/node_modules/
+/client/dist/
+/client/.angular/
+/client/coverage/
+/client/out-tsc/
+
+# Editors and OS
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Cargo.lock is deliberately not ignored: this crate builds a binary, so the
+# resolved versions belong in the repo.

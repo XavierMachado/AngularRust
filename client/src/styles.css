@@ -1,0 +1,177 @@
+/*
+ * Two accent colours carry the whole idea: teal for the reliable lane, magenta
+ * for the unreliable one. Every panel, tick and log line is coloured by which
+ * transport it used, so the difference is legible before you read a word.
+ */
+
+:root {
+  --paper: #e5eaf0;
+  --surface: #f7f9fb;
+  --ink: #0e1a2b;
+  --ink-2: #4d5e75;
+  --rule: #c2ccd8;
+  --reliable: #00707d;
+  --unreliable: #c4006a;
+  --alert: #9a4a00;
+
+  --font-display: 'Familjen Grotesk', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-data: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 0.95rem/1.55 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.eyebrow {
+  display: inline-block;
+  font: 500 0.66rem/1 var(--font-data);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ink-2);
+}
+
+/* Panels ------------------------------------------------------------------ */
+
+.panel {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 20px 22px 22px;
+  overflow: hidden;
+}
+
+/* The lane bar. Reading a panel's top edge tells you which guarantee it uses. */
+.panel.reliable::before,
+.panel.unreliable::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+}
+
+.panel.reliable::before {
+  background: var(--reliable);
+}
+
+.panel.unreliable::before {
+  background: var(--unreliable);
+}
+
+.panel h2 {
+  margin: 2px 0 12px;
+  font-size: 1.25rem;
+}
+
+.panel.unreliable .eyebrow {
+  color: var(--unreliable);
+}
+
+.panel.reliable .eyebrow {
+  color: var(--reliable);
+}
+
+/* Controls ---------------------------------------------------------------- */
+
+input {
+  font: 400 0.85rem/1 var(--font-data);
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 9px 11px;
+}
+
+input:disabled {
+  background: var(--paper);
+  color: var(--ink-2);
+}
+
+button {
+  font: 500 0.78rem/1 var(--font-body);
+  color: var(--surface);
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--reliable);
+  border-color: var(--reliable);
+}
+
+.panel.unreliable button:hover:not(:disabled) {
+  background: var(--unreliable);
+  border-color: var(--unreliable);
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--rule);
+}
+
+button.ghost:hover:not(:disabled) {
+  color: var(--surface);
+}
+
+button.small {
+  padding: 6px 12px;
+  font-size: 0.7rem;
+}
+
+button:disabled,
+input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+:focus-visible {
+  outline: 2px solid var(--unreliable);
+  outline-offset: 2px;
+}
+
+/* Scrollable regions ------------------------------------------------------ */
+
+ol::-webkit-scrollbar {
+  width: 10px;
+}
+
+ol::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border-radius: 999px;
+  border: 3px solid var(--paper);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
