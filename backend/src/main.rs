@@ -1,37 +1,32 @@
 //! A WebTransport server with a plain-HTTP side on the same port number.
 //!
 //! Port 4433/udp  WebTransport over HTTP/3
-//! Port 4433/tcp  `GET /discovery`, which hands the browser the certificate
-//!                fingerprint it needs to trust this server
+//! Port 4433/tcp  `GET /discovery`, `GET /health`, `GET /telemetry`,
+//!                `POST /api/request` — and the built Angular app, when
+//!                `client/dist` exists
 //!
 //! TCP and UDP are separate port namespaces, so both listeners bind 4433 in one
 //! process without conflict — the same way DNS holds 53 on both.
 //!
-//! Why the side-channel: a browser will only open a WebTransport session to a
-//! server it trusts. In development there is no public CA, so the client passes
-//! `serverCertificateHashes` instead. Chrome accepts that only for an ECDSA
-//! P-256 certificate valid for at most 14 days, which is exactly what
-//! `Identity::self_signed` produces. The fingerprint changes on every restart,
-//! so the client fetches it at connect time rather than having it pasted in.
+//! Why the discovery side-channel: a browser will only open a WebTransport
+//! session to a server it trusts. In development there is no public CA, so the
+//! client passes `serverCertificateHashes` instead. Chrome accepts that only
+//! for an ECDSA P-256 certificate valid for at most 14 days, which is exactly
+//! what `Identity::self_signed` produces. The fingerprint changes on every
+//! restart, so the client fetches it at connect time rather than having it
+//! pasted in.
 
 mod clock;
 mod framing;
+mod http;
 mod logging;
 mod session;
 mod state;
 
 use anyhow::Context;
 use anyhow::Result;
-use axum::routing::get;
-use axum::Json;
-use axum::Router;
-use serde::Serialize;
-use std::net::Ipv4Addr;
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::net::TcpListener;
-use tower_http::cors::CorsLayer;
 use tracing::error;
 use tracing::info;
 use tracing::info_span;
@@ -48,20 +43,6 @@ use crate::state::AppState;
 const WEBTRANSPORT_PORT: u16 = 4433;
 /// Same number, different transport: the HTTP side listens on TCP.
 const HTTP_PORT: u16 = 4433;
-
-/// What `GET /discovery` returns.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Discovery {
-    /// Where to point `new WebTransport(...)`.
-    url: String,
-    /// SHA-256 of the DER certificate, one byte per element.
-    cert_hash: Vec<u8>,
-    /// The same digest as hex, for display.
-    cert_hash_hex: String,
-    /// Chrome's ceiling for `serverCertificateHashes`.
-    max_certificate_days: u8,
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -102,11 +83,11 @@ async fn main() -> Result<()> {
     spawn_telemetry(state.clone());
 
     info!("WebTransport listening on udp/{WEBTRANSPORT_PORT}");
-    info!("discovery on http://127.0.0.1:{HTTP_PORT}/discovery");
+    info!("HTTP on http://127.0.0.1:{HTTP_PORT} — /discovery, /health, /telemetry, /api/request");
 
     tokio::select! {
-        result = serve_discovery(state.clone()) => {
-            error!("discovery server stopped: {result:?}");
+        result = http::serve(state.clone(), HTTP_PORT) => {
+            error!("HTTP server stopped: {result:?}");
         }
         result = accept_sessions(endpoint, state.clone()) => {
             error!("WebTransport server stopped: {result:?}");
@@ -150,39 +131,4 @@ fn spawn_telemetry(state: Arc<AppState>) {
             state.publish(state.telemetry());
         }
     });
-}
-
-async fn serve_discovery(state: Arc<AppState>) -> Result<()> {
-    let handler = {
-        let state = state.clone();
-
-        move || {
-            let state = state.clone();
-
-            async move {
-                Json(Discovery {
-                    url: state.webtransport_url.clone(),
-                    cert_hash: state.cert_hash.clone(),
-                    cert_hash_hex: state.cert_hash_hex.clone(),
-                    max_certificate_days: 14,
-                })
-            }
-        }
-    };
-
-    let router = Router::new()
-        .route("/discovery", get(handler))
-        // The Angular dev server is a different origin, so this needs CORS.
-        // Development only.
-        .layer(CorsLayer::permissive());
-
-    let listener = TcpListener::bind(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), HTTP_PORT))
-        .await
-        .context("binding the discovery listener")?;
-
-    axum::serve(listener, router)
-        .await
-        .context("serving discovery")?;
-
-    Ok(())
 }

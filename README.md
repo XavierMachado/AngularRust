@@ -1,7 +1,10 @@
 # WebTransport lab
 
 An Angular client and a Rust server that talk over WebTransport (HTTP/3 on QUIC), using all three
-channels the protocol offers: bidirectional streams, unidirectional streams, and datagrams.
+channels the protocol offers: bidirectional streams, unidirectional streams, and datagrams. The
+same server answers plain HTTP on the same port number — a JSON API through the same handler the
+streams use, and the built app itself — and the protocol logic is one Rust crate that the browser
+runs too, through wasm.
 
 The client isn't a wrapper around a demo — the whole app is the connection. Connecting, trusting
 the certificate, framing messages, measuring round trips, and tearing down are all visible in the
@@ -93,12 +96,47 @@ CORS layer.
 A QUIC stream is a byte pipe, not a message pipe: one read can hand you half a message or three of
 them. Both sides therefore frame every message as a 4-byte big-endian length followed by JSON. The
 format and the chunk-boundary bookkeeping live once, in `shared/src/framing.rs`; the backend adapts
-it to QUIC streams in `backend/src/framing.rs`, and the client currently mirrors it in TypeScript
-(`client/src/app/core/framing.ts`) until the wasm bindings replace that mirror. Datagrams need no
-framing — one datagram is one message, and if it doesn't arrive, it doesn't.
+it to QUIC streams in `backend/src/framing.rs`, and the client runs that same Rust through wasm
+behind the facade in `client/src/app/core/framing.ts`. Datagrams need no framing — one datagram is
+one message, and if it doesn't arrive, it doesn't.
 
 The tag key differs per channel (`op` on request streams, `kind` on the push stream, `d` on
 datagrams) so a message that shows up on the wrong channel fails to parse instead of half-working.
+
+## The HTTP API, same port, same handler
+
+tcp/4433 also speaks plain HTTP (`backend/src/http.rs`):
+
+```
+GET  /discovery      the certificate fingerprint, as always
+GET  /health         {"status":"ok"}
+GET  /telemetry      the same numbers the push stream carries, same shape
+POST /api/request    a Request in, a Reply out — the WebTransport op set as JSON
+```
+
+`POST /api/request` deserializes the identical `Request` enum and calls the identical
+`session::answer`, so the API cannot drift from the streams. The fun consequence is that transports
+compose:
+
+```bash
+curl -X POST http://127.0.0.1:4433/api/request \
+  -H "Content-Type: application/json" \
+  -d '{"op":"say","author":"curl","text":"hello from HTTP"}'
+```
+
+lands in the room of every browser connected over WebTransport, because both paths publish to the
+same broadcast bus. The same `MAX_FIB` ceiling guards the one expensive request on both paths — it
+lives in the shared crate, so neither transport can forget it.
+
+When `client/dist/console/browser` exists (override with `STATIC_DIR`), the backend also serves the
+built app, so `cargo run -p wt-server` after an `npm run build` is the whole production shape:
+one process, one port number, app and API and WebTransport. In development the Angular dev server
+on :4200 stays the front door for hot reload, and CORS on the API is permissive to allow it.
+
+One caveat to know about: with the self-signed certificate, browser `fetch()` calls to
+`https://…:4433` would fail TLS — `serverCertificateHashes` is a WebTransport-only escape hatch.
+That is why this listener is plain HTTP in development. Under a real (or mkcert) certificate it
+becomes HTTPS and the browser could call the API directly too.
 
 ## Server logs in the browser
 
@@ -219,7 +257,8 @@ shared/             code that runs on the server and, through wasm, in the brows
 
 backend/            the wt-server binary
   src/
-    main.rs       certificate, discovery endpoint, accept loop
+    main.rs       certificate, the two listeners, accept loop
+    http.rs       discovery, /health, /telemetry, /api/request, static serving
     session.rs    per-session: bidi requests, uploads, datagrams, push stream
     logging.rs    tracing layer that forwards log events to connected browsers
     framing.rs    the QUIC-stream adapters over the shared codec
