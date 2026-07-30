@@ -13,5 +13,7 @@ export default defineConfig({
     include: ['src/**/*.spec.ts'],
     environment: 'node',
     reporters: ['default'],
+    // Instantiates the wasm module the framing facade delegates to.
+    setupFiles: ['vitest.setup.ts'],
   },
 });

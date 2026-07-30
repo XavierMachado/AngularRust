@@ -12,6 +12,7 @@ import type {
   ServerPush,
   Telemetry,
 } from './protocol';
+import { validateSay } from './wasm';
 import { getWebTransport, type WtSession } from './webtransport.types';
 
 /**
@@ -245,7 +246,11 @@ export class TransportService {
 
   /** Broadcasts a line to every connected session. */
   async say(text: string): Promise<void> {
-    const reply = await this.request({ op: 'say', author: this.author, text });
+    // The server's own rules, run here first through wasm: what leaves this
+    // tab is already trimmed the way the server would trim it, and anything
+    // the server would refuse throws before it costs a round trip.
+    const said = validateSay(this.author, text);
+    const reply = await this.request({ op: 'say', author: said.author, text: said.text });
 
     if (reply.op === 'error') {
       this.write('stream', reply.message, 'warn');

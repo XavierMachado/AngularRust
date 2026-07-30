@@ -1690,6 +1690,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "wt-wasm"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "wasm-bindgen",
+ "wt-shared",
+]
+
+[[package]]
 name = "wtransport"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

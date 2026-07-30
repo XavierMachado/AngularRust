@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { FormsModule } from '@angular/forms';
 
 import { TransportService } from './core/transport.service';
+import { humanBytes } from './core/wasm';
 import { DatagramPanel } from './panels/datagram-panel';
 import { EventLog } from './panels/event-log';
 import { RequestPanel } from './panels/request-panel';
@@ -264,22 +265,10 @@ export class App {
     return (hex.match(/.{2}/g) ?? []).join(':');
   });
 
+  // The same formatter the server uses in its upload notices, via wasm.
   protected readonly bytes = computed(() => {
     const stats = this.transport.telemetry();
-    if (!stats) {
-      return '0 B';
-    }
-
-    const units = ['B', 'KiB', 'MiB', 'GiB'];
-    let value = stats.bytesIn;
-    let unit = 0;
-
-    while (value >= 1024 && unit < units.length - 1) {
-      value /= 1024;
-      unit += 1;
-    }
-
-    return `${unit === 0 ? value : value.toFixed(1)} ${units[unit]}`;
+    return stats ? humanBytes(stats.bytesIn) : '0 B';
   });
 
   protected readonly uptime = computed(() => {

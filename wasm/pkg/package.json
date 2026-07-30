@@ -1,0 +1,15 @@
+{
+  "name": "wt-wasm",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "wt_wasm_bg.wasm",
+    "wt_wasm.js",
+    "wt_wasm.d.ts"
+  ],
+  "main": "wt_wasm.js",
+  "types": "wt_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

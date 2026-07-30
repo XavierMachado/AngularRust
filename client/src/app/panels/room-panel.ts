@@ -1,8 +1,9 @@
 import { DatePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import { TransportService } from '../core/transport.service';
+import { validateSay } from '../core/wasm';
 
 /**
  * Send on a bidirectional stream, receive on the server's push stream. Open a
@@ -46,6 +47,13 @@ import { TransportService } from '../core/transport.service';
           Send
         </button>
       </div>
+
+      @if (clippedTo(); as limit) {
+        <p class="clip">
+          Only the first {{ limit }} characters will be broadcast — trimmed here by the same Rust
+          rule the server enforces.
+        </p>
+      }
     </section>
   `,
   styles: `
@@ -113,11 +121,36 @@ import { TransportService } from '../core/transport.service';
       flex: 1 1 auto;
       min-width: 0;
     }
+
+    .clip {
+      margin: 8px 0 0;
+      font-size: 0.74rem;
+      line-height: 1.4;
+      color: var(--ink-2);
+    }
   `,
 })
 export class RoomPanel {
   protected readonly transport = inject(TransportService);
   protected readonly draft = signal('');
+
+  /**
+   * Runs the draft through the server's own validation — the shared Rust, via
+   * wasm — and reports the limit only when the text would actually be cut.
+   */
+  protected readonly clippedTo = computed(() => {
+    const text = this.draft().trim();
+    if (!text) {
+      return null;
+    }
+
+    try {
+      const said = validateSay('', text);
+      return said.text === text ? null : said.text.length;
+    } catch {
+      return null;
+    }
+  });
 
   protected async send(): Promise<void> {
     const text = this.draft().trim();

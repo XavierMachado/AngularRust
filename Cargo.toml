@@ -10,7 +10,7 @@
 
 [workspace]
 resolver = "2"
-members = ["backend", "shared"]
+members = ["backend", "shared", "wasm"]
 
 [workspace.package]
 version = "0.1.0"

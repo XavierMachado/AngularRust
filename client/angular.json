@@ -20,6 +20,11 @@
               {
                 "glob": "**/*",
                 "input": "public"
+              },
+              {
+                "glob": "wt_wasm_bg.wasm",
+                "input": "node_modules/wt-wasm",
+                "output": ""
               }
             ]
           },

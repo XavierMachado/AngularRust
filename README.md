@@ -11,11 +11,13 @@ UI as they happen.
 client/   Angular 20, standalone components, zoneless, signals
 backend/  Rust, wtransport 0.7, tokio, axum — the wt-server binary
 shared/   Rust that runs on both sides: protocol, framing, validation, compute
+wasm/     wasm-bindgen bindings over shared/, which the client imports
 ```
 
 The Rust side is one Cargo workspace. `shared/` must keep compiling for
 `wasm32-unknown-unknown` — no tokio, no wtransport, no `SystemTime` — because the browser runs it
-too; `make check` enforces that.
+too; `make check` enforces that. `wasm/pkg` (the compiled output) is committed, so building the
+client needs only Node; after changing `shared/` or `wasm/`, run `make wasm` and commit the result.
 
 ## Running it
 
@@ -141,10 +143,41 @@ Things worth trying:
 
 - Start `fib(185)` and press Echo immediately. The echo comes back first — separate streams, no
   head-of-line blocking between them.
+- Press **On the server** and then **In this tab** for the same `n`. The identical digits come
+  back, because it is the identical Rust function — one call crossed the network, the other ran in
+  the page through wasm.
 - Turn on the twice-a-second ping, then upload 16 MiB. Datagram round trips climb while the stream
   saturates the link, and some pings never return. Both are the transport behaving correctly.
 - Kill the server while connected. `closed` rejects, the log says so, and the UI returns to offline
-  without a stale session hanging around.
+  without a stale session hanging around. The **In this tab** button keeps working — it never
+  needed the connection.
+
+## The same Rust in the browser
+
+`shared/` compiles twice: natively into the server, and through `wasm/` (wasm-bindgen) into the
+page. The split of labor at the boundary is deliberate: bytes cross as `Uint8Array`, JSON crosses
+as strings — the engine's own `JSON.parse` beats marshalling structured values through wasm — and
+everything stateful stays on the Rust side of the line.
+
+What the client actually runs through it:
+
+- **Framing.** `core/framing.ts` keeps its old two-symbol surface (`encodeFrame`, `FrameDecoder`)
+  but is now a facade over the shared codec. The vitest spec that used to test the TypeScript
+  implementation now tests the compiled binary — `vitest.setup.ts` loads the committed `.wasm`
+  with `initSync`, so the same eight tests pin both implementations to one behavior.
+- **Validation.** `say()` runs the server's `validate_say` before sending, and the room panel
+  previews the trim live. What the client refuses is what the server would refuse, by
+  construction rather than by keeping two rule sets in sync.
+- **Compute.** `fib` and the byte formatter are the shared functions; the request panel times the
+  wasm call against the round trip.
+
+The wasm module loads in `main.ts` before Angular boots, so every later call is synchronous. The
+`.wasm` file itself is copied by an assets rule in `angular.json` and fetched once at startup
+(~84 KB, ~30 KB over the wire).
+
+The types in `core/protocol.ts` are still written by hand against `shared/src/protocol.rs` — the
+logic no longer duplicates, the type declarations still do. Generating them (ts-rs or typeshare)
+is the natural next step if that drift ever bites.
 
 ## Notes on the code
 
@@ -172,7 +205,7 @@ reference: `.with_identity(&identity)`.
 .editorconfig       shared whitespace rules for both sides
 .gitignore          build output on both sides; Cargo.lock is deliberately kept
 Makefile            run, test and format targets
-Cargo.toml          the workspace: backend, shared
+Cargo.toml          the workspace: backend, shared, wasm
 Cargo.lock          committed, because this workspace builds a binary
 rust-toolchain.toml pinned compiler, with rustfmt and clippy
 rustfmt.toml
@@ -193,31 +226,38 @@ backend/            the wt-server binary
     state.rs      counters and the broadcast bus
     clock.rs      now_ms, kept out of shared/ because SystemTime panics on wasm
 
+wasm/               what the browser imports
+  src/lib.rs      thin wasm-bindgen casts around shared/ — no logic of its own
+  pkg/            wasm-pack output, committed; `make wasm` regenerates it
+
 client/
-  package.json          scripts: start, build, test, format
-  angular.json          application and dev-server targets
+  package.json          scripts: start, build, test, format; depends on file:../wasm/pkg
+  angular.json          application and dev-server targets; copies the .wasm asset
   tsconfig.json         strict, plus strict Angular templates
   tsconfig.app.json     the build
   tsconfig.spec.json    the tests
   vitest.config.ts
+  vitest.setup.ts       instantiates the committed wasm for the tests
   .prettierrc
   public/favicon.svg
   src/
     index.html
-    main.ts
+    main.ts             loads the wasm module, then boots Angular
     styles.css          the design tokens live here
     app/
       app.config.ts               zoneless, plus the global error handler
       app.ts                      layout, masthead, telemetry strip
       core/transport.service.ts   owns the session, exposes it as signals
-      core/framing.ts             the same framing, in TypeScript
-      core/framing.spec.ts        the awkward chunk boundaries, tested
-      core/protocol.ts            the same messages, in TypeScript
+      core/framing.ts             facade over the shared codec, via wasm
+      core/framing.spec.ts        the awkward chunk boundaries, run against the wasm
+      core/wasm.ts                typed doorway to shared compute and validation
+      core/protocol.ts            the messages, mirrored in TypeScript by hand
       core/webtransport.types.ts  browser API typings
       core/error-handler.ts       uncaught browser errors, into the same log
       panels/                     one component per channel, plus the log viewer
 ```
 
-Tests cover `core/`, which is plain TypeScript with no Angular or browser dependency — deliberately
-where the logic that can be subtly wrong lives. Component tests need a DOM and Angular's test
-harness; add the `@angular/build:unit-test` target to `angular.json` when you want them.
+Tests cover `core/`, which runs under plain Node with no Angular or DOM — deliberately where the
+logic that can be subtly wrong lives. The framing spec exercises the committed wasm binary itself.
+Component tests need a DOM and Angular's test harness; add the `@angular/build:unit-test` target to
+`angular.json` when you want them.
