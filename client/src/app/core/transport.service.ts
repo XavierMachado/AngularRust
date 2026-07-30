@@ -14,8 +14,11 @@ import type {
 } from './protocol';
 import { getWebTransport, type WtSession } from './webtransport.types';
 
-/** Where the server publishes its certificate fingerprint over plain HTTP. */
-const DISCOVERY_URL = 'http://127.0.0.1:4434/discovery';
+/**
+ * Where the server publishes its certificate fingerprint over plain HTTP.
+ * Same port number as WebTransport: that one is udp/4433, this is tcp/4433.
+ */
+const DISCOVERY_URL = 'http://127.0.0.1:4433/discovery';
 
 const MAX_LOG_LINES = 1000;
 const MAX_ROOM_LINES = 100;

@@ -1,8 +1,11 @@
-//! A WebTransport server with a small HTTP side-channel.
+//! A WebTransport server with a plain-HTTP side on the same port number.
 //!
 //! Port 4433/udp  WebTransport over HTTP/3
-//! Port 4434/tcp  `GET /discovery`, which hands the browser the certificate
+//! Port 4433/tcp  `GET /discovery`, which hands the browser the certificate
 //!                fingerprint it needs to trust this server
+//!
+//! TCP and UDP are separate port namespaces, so both listeners bind 4433 in one
+//! process without conflict — the same way DNS holds 53 on both.
 //!
 //! Why the side-channel: a browser will only open a WebTransport session to a
 //! server it trusts. In development there is no public CA, so the client passes
@@ -43,7 +46,8 @@ use crate::logging::LogBus;
 use crate::state::AppState;
 
 const WEBTRANSPORT_PORT: u16 = 4433;
-const DISCOVERY_PORT: u16 = 4434;
+/// Same number, different transport: the HTTP side listens on TCP.
+const HTTP_PORT: u16 = 4433;
 
 /// What `GET /discovery` returns.
 #[derive(Serialize)]
@@ -98,7 +102,7 @@ async fn main() -> Result<()> {
     spawn_telemetry(state.clone());
 
     info!("WebTransport listening on udp/{WEBTRANSPORT_PORT}");
-    info!("discovery on http://127.0.0.1:{DISCOVERY_PORT}/discovery");
+    info!("discovery on http://127.0.0.1:{HTTP_PORT}/discovery");
 
     tokio::select! {
         result = serve_discovery(state.clone()) => {
@@ -172,7 +176,7 @@ async fn serve_discovery(state: Arc<AppState>) -> Result<()> {
         // Development only.
         .layer(CorsLayer::permissive());
 
-    let listener = TcpListener::bind(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), DISCOVERY_PORT))
+    let listener = TcpListener::bind(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), HTTP_PORT))
         .await
         .context("binding the discovery listener")?;
 

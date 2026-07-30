@@ -3,7 +3,7 @@
 
 help:
 	@echo "make install   install client dependencies"
-	@echo "make server    run the WebTransport server (udp/4433, tcp/4434)"
+	@echo "make server    run the WebTransport server (udp/4433, tcp/4433)"
 	@echo "make client    run the Angular dev server (localhost:4200)"
 	@echo "make check     typecheck and lint-build both sides"
 	@echo "make fmt       format both sides"

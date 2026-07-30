@@ -17,7 +17,7 @@ server/  Rust, wtransport 0.7, tokio, axum
 Two terminals.
 
 ```bash
-cd server && cargo run                  # udp/4433 WebTransport, tcp/4434 discovery
+cd server && cargo run                  # udp/4433 WebTransport, tcp/4433 discovery
 cd client && npm install && npm start   # http://localhost:4200
 ```
 
@@ -64,7 +64,7 @@ The fingerprint changes on every server start, so pasting it into config would b
 Instead the server publishes it over plain HTTP:
 
 ```
-GET http://127.0.0.1:4434/discovery
+GET http://127.0.0.1:4433/discovery
 { "url": "https://localhost:4433/lab", "certHash": [12, 34, ...], "certHashHex": "0c22...", ... }
 ```
 
