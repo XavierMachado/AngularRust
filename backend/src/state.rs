@@ -7,8 +7,9 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::broadcast;
 
+use wt_shared::protocol::ServerPush;
+
 use crate::logging::LogBus;
-use crate::protocol::ServerPush;
 
 /// How many pushes a slow session may fall behind before it starts losing them.
 const BROADCAST_DEPTH: usize = 256;

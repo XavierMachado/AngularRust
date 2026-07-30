@@ -8,16 +8,21 @@ the certificate, framing messages, measuring round trips, and tearing down are a
 UI as they happen.
 
 ```
-client/  Angular 20, standalone components, zoneless, signals
-server/  Rust, wtransport 0.7, tokio, axum
+client/   Angular 20, standalone components, zoneless, signals
+backend/  Rust, wtransport 0.7, tokio, axum — the wt-server binary
+shared/   Rust that runs on both sides: protocol, framing, validation, compute
 ```
+
+The Rust side is one Cargo workspace. `shared/` must keep compiling for
+`wasm32-unknown-unknown` — no tokio, no wtransport, no `SystemTime` — because the browser runs it
+too; `make check` enforces that.
 
 ## Running it
 
 Two terminals.
 
 ```bash
-cd server && cargo run                  # udp/4433 WebTransport, tcp/4433 discovery
+cargo run -p wt-server                  # udp/4433 WebTransport, tcp/4433 discovery
 cd client && npm install && npm start   # http://localhost:4200
 ```
 
@@ -28,15 +33,15 @@ Other tasks:
 ```bash
 cd client && npm test        # vitest, covers the framing logic
 cd client && npm run format  # prettier
-cd server && cargo test      # the pure helpers
-cd server && cargo clippy --all-targets
+cargo test --workspace       # framing, validation, compute
+cargo clippy --workspace --all-targets
 make check                   # all of the above
 ```
 
-`Cargo.lock` is committed: this crate builds a binary rather than a library, so pinning the resolved
-dependency versions is what you want.
+`Cargo.lock` is committed: this workspace builds a binary rather than a library, so pinning the
+resolved dependency versions is what you want.
 
-The toolchain is pinned in `server/rust-toolchain.toml`, and rustup installs it on the first build.
+The toolchain is pinned in `rust-toolchain.toml`, and rustup installs it on the first build.
 The pin has to be at least 1.88 — `wtransport` 0.7.1 declares that, and `rcgen` and `time` agree, so
 an older pin fails during resolution rather than compilation, with a `not supported by the following
 packages` error that looks unrelated to the compiler version.
@@ -84,9 +89,11 @@ CORS layer.
 | Datagram | none of the above | ping/pong round-trip timing |
 
 A QUIC stream is a byte pipe, not a message pipe: one read can hand you half a message or three of
-them. Both sides therefore frame every message as a 4-byte big-endian length followed by JSON
-(`server/src/framing.rs` and `client/src/app/core/framing.ts` are the same algorithm twice).
-Datagrams need no framing — one datagram is one message, and if it doesn't arrive, it doesn't.
+them. Both sides therefore frame every message as a 4-byte big-endian length followed by JSON. The
+format and the chunk-boundary bookkeeping live once, in `shared/src/framing.rs`; the backend adapts
+it to QUIC streams in `backend/src/framing.rs`, and the client currently mirrors it in TypeScript
+(`client/src/app/core/framing.ts`) until the wasm bindings replace that mirror. Datagrams need no
+framing — one datagram is one message, and if it doesn't arrive, it doesn't.
 
 The tag key differs per channel (`op` on request streams, `kind` on the push stream, `d` on
 datagrams) so a message that shows up on the wrong channel fails to parse instead of half-working.
@@ -165,19 +172,26 @@ reference: `.with_identity(&identity)`.
 .editorconfig       shared whitespace rules for both sides
 .gitignore          build output on both sides; Cargo.lock is deliberately kept
 Makefile            run, test and format targets
+Cargo.toml          the workspace: backend, shared
+Cargo.lock          committed, because this workspace builds a binary
+rust-toolchain.toml pinned compiler, with rustfmt and clippy
+rustfmt.toml
 
-server/
-  Cargo.toml
-  Cargo.lock            committed, because this crate builds a binary
-  rust-toolchain.toml   pinned compiler, with rustfmt and clippy
-  rustfmt.toml
+shared/             code that runs on the server and, through wasm, in the browser
+  src/
+    protocol.rs   the message types, serializable in both directions
+    framing.rs    the frame format and chunk-boundary decoder, plus its tests
+    validate.rs   the Say rules: trims, limits, the anonymous fallback
+    compute.rs    fib, reverse, human_bytes
+
+backend/            the wt-server binary
   src/
     main.rs       certificate, discovery endpoint, accept loop
     session.rs    per-session: bidi requests, uploads, datagrams, push stream
     logging.rs    tracing layer that forwards log events to connected browsers
-    protocol.rs   the message types
-    framing.rs    length-prefixed JSON over a QUIC stream
+    framing.rs    the QUIC-stream adapters over the shared codec
     state.rs      counters and the broadcast bus
+    clock.rs      now_ms, kept out of shared/ because SystemTime panics on wasm
 
 client/
   package.json          scripts: start, build, test, format

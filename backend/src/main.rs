@@ -14,9 +14,9 @@
 //! `Identity::self_signed` produces. The fingerprint changes on every restart,
 //! so the client fetches it at connect time rather than having it pasted in.
 
+mod clock;
 mod framing;
 mod logging;
-mod protocol;
 mod session;
 mod state;
 

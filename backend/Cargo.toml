@@ -1,24 +1,25 @@
 [package]
 name = "wt-server"
-version = "0.1.0"
-edition = "2021"
-rust-version = "1.88"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 
 [dependencies]
+# Protocol types, framing codec, validation — the code the browser also runs.
+wt-shared = { path = "../shared" }
+
 # WebTransport over HTTP/3. The API below targets 0.7.x.
 # On 0.6.x, `with_identity` takes a reference: `.with_identity(&identity)`.
 wtransport = "0.7"
 
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
-serde = { version = "1.0.190", features = ["derive"] }
-serde_json = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# Plain HTTP side-channel that hands the browser the certificate fingerprint.
+# The plain-HTTP side: discovery, and later the API. Same port number as
+# WebTransport — that one is UDP, this one is TCP.
 axum = "0.8"
 tower-http = { version = "0.6", features = ["cors"] }
-
-[profile.release]
-opt-level = 3

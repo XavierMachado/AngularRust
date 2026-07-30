@@ -23,23 +23,24 @@ use wtransport::Connection;
 use wtransport::RecvStream;
 use wtransport::SendStream;
 
-use crate::framing::read_frame;
+use wt_shared::compute;
+use wt_shared::compute::human_bytes;
+use wt_shared::protocol::DatagramIn;
+use wt_shared::protocol::DatagramOut;
+use wt_shared::protocol::Reply;
+use wt_shared::protocol::Request;
+use wt_shared::protocol::ServerPush;
+use wt_shared::validate::validate_say;
+
+use crate::clock::now_ms;
 use crate::framing::write_frame;
+use crate::framing::FrameReader;
 use crate::logging::FORWARDING;
-use crate::protocol::now_ms;
-use crate::protocol::DatagramIn;
-use crate::protocol::DatagramOut;
-use crate::protocol::Reply;
-use crate::protocol::Request;
-use crate::protocol::ServerPush;
 use crate::state::AppState;
 use crate::state::SessionGuard;
 
 /// Read buffer for bulk uploads.
 const UPLOAD_CHUNK: usize = 64 * 1024;
-
-/// `Fib` is a CPU burner, not a maths library. Keep it inside u128.
-const MAX_FIB: u32 = 185;
 
 pub async fn handle(
     incoming: IncomingSession,
@@ -127,11 +128,13 @@ async fn pump(connection: &Arc<Connection>, state: &Arc<AppState>, session_id: &
 /// open a fresh stream per request, but the loop supports pipelining too.
 async fn serve_requests(
     mut send: SendStream,
-    mut recv: RecvStream,
+    recv: RecvStream,
     state: Arc<AppState>,
     session_id: String,
 ) -> Result<()> {
-    while let Some(request) = read_frame::<Request>(&mut recv).await? {
+    let mut reader = FrameReader::new(recv);
+
+    while let Some(request) = reader.next::<Request>().await? {
         state.frames_in.fetch_add(1, Ordering::Relaxed);
         debug!(%session_id, ?request, "request");
 
@@ -145,7 +148,13 @@ async fn serve_requests(
     Ok(())
 }
 
-fn answer(request: Request, state: &AppState) -> Reply {
+/// The whole business layer: one `Request` in, one `Reply` out. Both
+/// transports call this — WebTransport frames it over a stream, the HTTP API
+/// takes it as JSON — so there is exactly one implementation to drift from.
+///
+/// The computation and the validation live in `wt-shared`; this function adds
+/// only what the browser cannot: the clock, and the broadcast bus.
+pub fn answer(request: Request, state: &AppState) -> Reply {
     match request {
         Request::Ping => Reply::Pong {
             server_time_ms: now_ms(),
@@ -154,49 +163,34 @@ fn answer(request: Request, state: &AppState) -> Reply {
         Request::Echo { text } => Reply::Echo { text },
 
         Request::Reverse { text } => Reply::Reversed {
-            text: text.chars().rev().collect(),
-        },
-
-        Request::Fib { n } if n > MAX_FIB => Reply::Error {
-            message: format!("n must be {MAX_FIB} or less"),
+            text: compute::reverse(&text),
         },
 
         Request::Fib { n } => {
             let started = Instant::now();
-            let (mut a, mut b) = (0u128, 1u128);
-            for _ in 0..n {
-                (a, b) = (b, a + b);
-            }
 
-            Reply::Fib {
-                n,
-                value: a.to_string(),
-                took_micros: started.elapsed().as_micros() as u64,
-            }
-        }
-
-        Request::Say { author, text } => {
-            let author = trim_to(author.trim(), 24);
-            let text = trim_to(text.trim(), 280);
-
-            if text.is_empty() {
-                return Reply::Error {
-                    message: "message is empty".into(),
-                };
-            }
-
-            state.publish(ServerPush::Said {
-                author: if author.is_empty() {
-                    "anonymous".into()
-                } else {
-                    author
+            match compute::fib(n) {
+                Ok(value) => Reply::Fib {
+                    n,
+                    value,
+                    took_micros: started.elapsed().as_micros() as u64,
                 },
-                text,
-                at_ms: now_ms(),
-            });
-
-            Reply::Accepted
+                Err(message) => Reply::Error { message },
+            }
         }
+
+        Request::Say { author, text } => match validate_say(&author, &text) {
+            Ok(said) => {
+                state.publish(ServerPush::Said {
+                    author: said.author,
+                    text: said.text,
+                    at_ms: now_ms(),
+                });
+
+                Reply::Accepted
+            }
+            Err(message) => Reply::Error { message },
+        },
     }
 }
 
@@ -319,48 +313,4 @@ where
             debug!(%error, "{what} ended");
         }
     });
-}
-
-fn trim_to(value: &str, limit: usize) -> String {
-    value.chars().take(limit).collect()
-}
-
-fn human_bytes(bytes: u64) -> String {
-    const UNITS: [&str; 4] = ["B", "KiB", "MiB", "GiB"];
-    let mut value = bytes as f64;
-    let mut unit = 0;
-
-    while value >= 1024.0 && unit < UNITS.len() - 1 {
-        value /= 1024.0;
-        unit += 1;
-    }
-
-    if unit == 0 {
-        format!("{bytes} B")
-    } else {
-        format!("{value:.1} {}", UNITS[unit])
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::human_bytes;
-    use super::trim_to;
-
-    #[test]
-    fn bytes_read_the_way_people_write_them() {
-        assert_eq!(human_bytes(0), "0 B");
-        assert_eq!(human_bytes(512), "512 B");
-        assert_eq!(human_bytes(1024), "1.0 KiB");
-        assert_eq!(human_bytes(1536), "1.5 KiB");
-        assert_eq!(human_bytes(5 * 1024 * 1024), "5.0 MiB");
-    }
-
-    #[test]
-    fn trimming_counts_characters_not_bytes() {
-        assert_eq!(trim_to("hello", 10), "hello");
-        assert_eq!(trim_to("hello", 3), "hel");
-        // Four characters, twelve bytes: a byte-wise truncation would split one.
-        assert_eq!(trim_to("日本語です", 4), "日本語で");
-    }
 }

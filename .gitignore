@@ -1,5 +1,5 @@
-# Rust
-/server/target/
+# Rust — the workspace builds into one target directory at the root
+/target/
 
 # Angular
 /client/node_modules/

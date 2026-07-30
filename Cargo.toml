@@ -1,0 +1,26 @@
+# The Rust side is one workspace, three crates:
+#
+#   shared/    protocol types, framing codec, validation, pure compute.
+#              Must keep compiling for wasm32-unknown-unknown — no tokio,
+#              no wtransport, no SystemTime.
+#   backend/   the server: transport, sessions, logging, HTTP.
+#   wasm/      wasm-bindgen bindings over shared/, for the browser.
+#
+# The client/ directory is a separate npm project, not a workspace member.
+
+[workspace]
+resolver = "2"
+members = ["backend", "shared"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+
+[workspace.dependencies]
+serde = { version = "1.0.190", features = ["derive"] }
+serde_json = "1"
+
+# Profiles live at the workspace root; member-crate profiles are ignored.
+[profile.release]
+opt-level = 3

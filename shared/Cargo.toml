@@ -1,0 +1,14 @@
+[package]
+name = "wt-shared"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+# Everything in this crate runs on the server and in the browser via wasm.
+# That is enforced, not aspirational: `make check` compiles this crate for
+# wasm32-unknown-unknown, so tokio, wtransport, or SystemTime creeping in
+# fails the build rather than panicking in the browser later.
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

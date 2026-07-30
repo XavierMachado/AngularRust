@@ -10,12 +10,17 @@
 //!
 //! `rename_all_fields = "camelCase"` keeps the JSON idiomatic for TypeScript
 //! while the Rust side stays snake_case.
+//!
+//! Every type derives both `Serialize` and `Deserialize`: the server reads
+//! `Request` and writes `Reply`, but the browser — running this same crate
+//! through wasm — does the opposite, and the HTTP API accepts `Request` as
+//! plain JSON.
 
 use serde::Deserialize;
 use serde::Serialize;
 
 /// Client -> server, over a bidirectional stream.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Request {
     /// Liveness check that also reveals the server clock.
@@ -31,7 +36,7 @@ pub enum Request {
 }
 
 /// Server -> client, on the same bidirectional stream the request arrived on.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Reply {
     Pong {
@@ -57,7 +62,7 @@ pub enum Reply {
 }
 
 /// Server -> client, on the long-lived unidirectional stream opened by the server.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -94,7 +99,7 @@ pub enum ServerPush {
 }
 
 /// One event captured from the server's `tracing` subscriber.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerLog {
     /// Monotonic within one process run. The client dedupes on it, because
@@ -113,7 +118,7 @@ pub struct ServerLog {
 }
 
 /// Client -> server, one per datagram.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "d", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum DatagramIn {
     /// `sent_at_ms` is the client's own `performance.now()`; the server treats it
@@ -123,7 +128,7 @@ pub enum DatagramIn {
 }
 
 /// Server -> client, one per datagram.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "d", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum DatagramOut {
     Pong {
@@ -131,12 +136,4 @@ pub enum DatagramOut {
         sent_at_ms: f64,
         server_time_ms: u64,
     },
-}
-
-/// Milliseconds since the Unix epoch.
-pub fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or_default()
 }

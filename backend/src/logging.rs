@@ -41,8 +41,9 @@ use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::Layer;
 
-use crate::protocol::now_ms;
-use crate::protocol::ServerLog;
+use wt_shared::protocol::ServerLog;
+
+use crate::clock::now_ms;
 
 /// Replayed to each session when it connects, so a browser opened after the
 /// interesting thing happened still sees it.
