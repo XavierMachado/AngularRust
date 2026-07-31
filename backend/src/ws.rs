@@ -184,8 +184,14 @@ async fn read_socket(
                 }
 
                 Err(error) => {
-                    warn!(%error, "unparseable call frame");
-                    true
+                    // Closed rather than skipped, for the same reason an
+                    // undecodable lane closes: this is a reliable channel, so a
+                    // frame we cannot read means a broken peer, not a bad
+                    // packet. Warning and carrying on would also hand any one
+                    // client a way to flood every *other* browser's console —
+                    // these warnings are forwarded.
+                    warn!(%error, "closing the session on an unparseable call frame");
+                    break;
                 }
             },
 

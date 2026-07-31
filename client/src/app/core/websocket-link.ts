@@ -20,7 +20,7 @@ import {
   LANE,
   laneJson,
 } from './lane';
-import { describe, formatBytes, type Link, type LinkEvents } from './link';
+import { describe, formatBytes, withDeadline, type Link, type LinkEvents } from './link';
 import type { Net } from './net';
 import { PendingCalls } from './pending';
 import type {
@@ -33,7 +33,6 @@ import type {
   ServerFrame,
   TransportKind,
 } from './protocol';
-import { withDeadline } from './webtransport-link';
 
 const CALL_TIMEOUT_MS = 30_000;
 const OPEN_TIMEOUT_MS = 8_000;
@@ -119,8 +118,14 @@ export class WebSocketLink implements Link {
     const { id, reply } = this.pending.open(CALL_TIMEOUT_MS);
     const frame: ClientFrame = { t: 'call', id, request };
 
-    socket.send(encodeControl(frame));
-    this.events?.onTick('stream', 'out');
+    try {
+      socket.send(encodeControl(frame));
+      this.events?.onTick('stream', 'out');
+    } catch (error) {
+      // The call never left, so no reply is coming. Retire the entry rather
+      // than leaving it to time out unheld half a minute from now.
+      this.pending.fail(id, describe(error));
+    }
 
     return reply;
   }

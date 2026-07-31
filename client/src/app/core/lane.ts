@@ -53,15 +53,28 @@ export function encodeUploadEnd(stream: number): Uint8Array {
   return encode_lane(LANE.uploadEnd, stream, new Uint8Array(0));
 }
 
-/** Splits one received message into its lane, stream id and body. */
+/**
+ * Splits one received message into its lane, stream id and body.
+ *
+ * The wasm value is copied into a plain object and freed here rather than
+ * handed out. wasm-bindgen registers its exports for finalization, so leaving
+ * it to the collector would not leak forever — but it would leave wasm linear
+ * memory held until a GC that has no idea it is under pressure, once per
+ * inbound message, for the life of the session. Freeing on the spot is
+ * deterministic and costs a call.
+ */
 export function decodeLane(message: Uint8Array): DecodedLane {
   const decoded = decode_lane(message);
 
-  return {
-    lane: decoded.lane as LaneTag,
-    stream: decoded.stream,
-    body: decoded.body,
-  };
+  try {
+    return {
+      lane: decoded.lane as LaneTag,
+      stream: decoded.stream,
+      body: decoded.body,
+    };
+  } finally {
+    decoded.free();
+  }
 }
 
 /** Reads a control or datagram body as JSON. */

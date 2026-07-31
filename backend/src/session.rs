@@ -76,6 +76,10 @@ pub async fn run(link: Link, state: Arc<AppState>, session_id: String) -> Result
 /// closes its end of the channel.
 async fn pump(mut link: Link, state: &Arc<AppState>, session_id: &str) -> Result<()> {
     let mut uploads: HashMap<u64, app::Upload> = HashMap::new();
+    // Said once per session, not once per chunk: these lines are forwarded to
+    // every connected browser, so a peer that keeps pushing past the limit
+    // would otherwise be flooding other people's consoles.
+    let mut warned_about_uploads = false;
 
     while let Some(event) = link.inbound.recv().await {
         match event {
@@ -118,8 +122,9 @@ async fn pump(mut link: Link, state: &Arc<AppState>, session_id: &str) -> Result
                     let mut upload = app::Upload::begin();
                     upload.chunk(bytes);
                     uploads.insert(id, upload);
-                } else {
-                    warn!(%session_id, id, "ignoring an upload past the open limit");
+                } else if !warned_about_uploads {
+                    warned_about_uploads = true;
+                    warn!(%session_id, id, "ignoring uploads past the open limit");
                 }
             }
 

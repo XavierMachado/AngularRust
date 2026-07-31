@@ -73,6 +73,30 @@ export interface Link {
   close(): void;
 }
 
+/**
+ * Rejects if `promise` has not settled within `ms`.
+ *
+ * Load-bearing rather than defensive. On a network that drops UDP,
+ * `session.ready` does not reject — it hangs — and a discovery fetch to a host
+ * that accepts the connection and then says nothing hangs the same way. Both
+ * are exactly the conditions the fallback exists for, so something has to turn
+ * silence into an error before anything can react to it.
+ */
+export async function withDeadline<T>(promise: Promise<T>, ms: number, reason: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(reason)), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Turns anything thrown into something worth putting in the log. */
 export function describe(error: unknown): string {
   if (error instanceof Error) {

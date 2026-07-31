@@ -225,6 +225,32 @@ describe('the WebSocket link', () => {
     expect(sink.closed).toHaveLength(1);
   });
 
+  it('fails only the call that could not be sent', async () => {
+    const { link, socket } = await connected();
+
+    const healthy = link.call({ op: 'ping' });
+
+    // The socket dies between the two, so the second send throws.
+    socket.readyState = 1;
+    socket.send = () => {
+      throw new Error('InvalidStateError');
+    };
+
+    await expect(link.call({ op: 'echo', text: 'no' })).rejects.toThrow(/InvalidStateError/);
+
+    // The first call is still perfectly alive and must still settle.
+    const [sent] = sentFrames(socket);
+    socket.deliver(
+      encodeControl({
+        t: 'result',
+        id: sent.id,
+        reply: { op: 'pong', serverTimeMs: 1 },
+      } satisfies ServerFrame),
+    );
+
+    await expect(healthy).resolves.toMatchObject({ op: 'pong' });
+  });
+
   it('reports itself as emulating datagrams', async () => {
     const { link } = await connected();
 

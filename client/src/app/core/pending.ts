@@ -51,9 +51,28 @@ export class PendingCalls {
   }
 
   /**
-   * Rejects everything still waiting. A dropped link produces no per-call
-   * error of its own, so without this a request in flight when the transport
-   * died would hang until its deadline.
+   * Rejects one call, if it is still waiting.
+   *
+   * Distinct from [`failAll`] on purpose: over WebTransport a call has its own
+   * stream, and that stream ending proves nothing about any other call in
+   * flight. Failing them all because one stream closed empty would reject
+   * requests that are still perfectly alive on streams of their own.
+   */
+  fail(id: number, reason: string): void {
+    const call = this.waiting.get(id);
+    if (!call) {
+      return;
+    }
+
+    clearTimeout(call.timer);
+    this.waiting.delete(id);
+    call.reject(new Error(reason));
+  }
+
+  /**
+   * Rejects everything still waiting. For when the transport itself is gone: a
+   * dropped link produces no per-call error of its own, so without this a
+   * request in flight when it died would hang until its deadline.
    */
   failAll(reason: string): void {
     for (const call of this.waiting.values()) {

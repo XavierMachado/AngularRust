@@ -9,7 +9,7 @@
  */
 
 import { encodeFrame, FrameDecoder } from './framing';
-import { describe, formatBytes, type Link, type LinkEvents } from './link';
+import { describe, formatBytes, withDeadline, type Link, type LinkEvents } from './link';
 import type { Net } from './net';
 import { PendingCalls } from './pending';
 import type {
@@ -105,18 +105,26 @@ export class WebTransportLink implements Link {
   async call(request: Request): Promise<Reply> {
     const session = this.require();
     const { id, reply } = this.pending.open(CALL_TIMEOUT_MS);
-    const stream = await session.createBidirectionalStream();
 
-    this.events?.onTick('stream', 'out');
+    try {
+      const stream = await session.createBidirectionalStream();
 
-    const frame: ClientFrame = { t: 'call', id, request };
-    const writer = stream.writable.getWriter();
-    await writer.write(encodeFrame(frame));
-    await writer.close();
+      this.events?.onTick('stream', 'out');
 
-    // The reply comes back on the stream it went out on, so this link settles
-    // its own pending call rather than waiting for a dispatcher.
-    void this.readReplies(stream.readable);
+      const frame: ClientFrame = { t: 'call', id, request };
+      const writer = stream.writable.getWriter();
+      await writer.write(encodeFrame(frame));
+      await writer.close();
+
+      // The reply comes back on the stream it went out on, so this link settles
+      // its own pending call rather than waiting for a dispatcher.
+      void this.readReplies(id, stream.readable);
+    } catch (error) {
+      // The call never left. Retire the entry rather than leaving it to time
+      // out in half a minute: nobody is holding `reply`, so its rejection would
+      // surface later as an unhandled one, long after the real error was shown.
+      this.pending.fail(id, describe(error));
+    }
 
     return reply;
   }
@@ -174,7 +182,7 @@ export class WebTransportLink implements Link {
   }
 
   /** Drains one reply stream to EOF and settles the call it belongs to. */
-  private async readReplies(readable: ReadableStream<Uint8Array>): Promise<void> {
+  private async readReplies(id: number, readable: ReadableStream<Uint8Array>): Promise<void> {
     const reader = readable.getReader();
     const decoder = new FrameDecoder();
     let answered = false;
@@ -204,8 +212,10 @@ export class WebTransportLink implements Link {
     }
 
     if (!answered) {
-      // EOF with nothing on it. WebTransport can prove this; a socket cannot.
-      this.pending.failAll('The server closed the stream without replying');
+      // EOF with nothing on it. WebTransport can prove that, where a socket
+      // cannot — but it proves it about *this* call only. Every other call is
+      // on a stream of its own and is still perfectly alive.
+      this.pending.fail(id, 'The server closed the stream without replying');
     }
   }
 
@@ -289,21 +299,5 @@ export class WebTransportLink implements Link {
     this.datagramWriter = null;
     this.pending.failAll(reason);
     this.events?.onClosed(reason, level);
-  }
-}
-
-/** Rejects if `promise` has not settled within `ms`. */
-export async function withDeadline<T>(promise: Promise<T>, ms: number, reason: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(reason)), ms);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
   }
 }

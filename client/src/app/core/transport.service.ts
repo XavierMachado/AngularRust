@@ -1,6 +1,13 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 
-import { describe, type Direction, type Lane, type Link, type LinkEvents } from './link';
+import {
+  describe,
+  withDeadline,
+  type Direction,
+  type Lane,
+  type Link,
+  type LinkEvents,
+} from './link';
 import { backoffMs, label, plan, type Preference } from './negotiate';
 import { DISCOVERY_URL, NET } from './net';
 import type {
@@ -24,6 +31,9 @@ const MAX_ROOM_LINES = 100;
 const MAX_RTT_SAMPLES = 120;
 /** How long a tick stays on the ledger, in milliseconds. */
 export const LEDGER_WINDOW_MS = 20_000;
+
+/** How long to wait for the discovery endpoint before treating it as down. */
+const DISCOVERY_TIMEOUT_MS = 5_000;
 
 /** How many times to retry a dropped link before giving up on it. */
 const MAX_RECONNECTS = 5;
@@ -165,6 +175,7 @@ export class TransportService {
   private wanted = false;
   private reconnects = 0;
   private webTransportFailures = 0;
+  private announcedDowngrade = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   async connect(author: string): Promise<void> {
@@ -176,6 +187,7 @@ export class TransportService {
     this.wanted = true;
     this.reconnects = 0;
     this.webTransportFailures = 0;
+    this.announcedDowngrade = false;
 
     await this.establish();
   }
@@ -260,7 +272,14 @@ export class TransportService {
 
     let discovery: Discovery;
     try {
-      discovery = await this.net.fetchJson<Discovery>(this.discoveryUrl);
+      // On a deadline, because `fetch` has none of its own: a host that accepts
+      // the connection and then says nothing would leave this awaiting forever,
+      // and a retry loop that never gets to run is not a retry loop.
+      discovery = await withDeadline(
+        this.net.fetchJson<Discovery>(this.discoveryUrl),
+        DISCOVERY_TIMEOUT_MS,
+        `${this.discoveryUrl} did not answer in time`,
+      );
     } catch {
       this.fail(`No answer from ${this.discoveryUrl}. Start the server with cargo run.`);
       this.scheduleRetry();
@@ -300,6 +319,13 @@ export class TransportService {
         continue;
       }
 
+      // Opening takes seconds, and the user may have given up during them.
+      // Adopting now would leave a live session nobody asked for.
+      if (!this.wanted) {
+        link.close();
+        return;
+      }
+
       this.adopt(link);
       return;
     }
@@ -312,11 +338,17 @@ export class TransportService {
   /** In `auto`, stop paying WebTransport's deadline once it has clearly failed. */
   private effectivePreference(): Preference {
     if (this.preference() === 'auto' && this.webTransportFailures >= DOWNGRADE_AFTER) {
-      this.write(
-        'link',
-        'QUIC does not appear to get through here; continuing over WebSocket.',
-        'warn',
-      );
+      // Once, not on every retry: the reason is news the first time and noise
+      // the next four.
+      if (!this.announcedDowngrade) {
+        this.announcedDowngrade = true;
+        this.write(
+          'link',
+          'QUIC does not appear to get through here; continuing over WebSocket.',
+          'warn',
+        );
+      }
+
       return 'websocket';
     }
 
