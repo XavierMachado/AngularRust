@@ -53,6 +53,7 @@ use wt_shared::protocol::Reply;
 use wt_shared::protocol::ServerFrame;
 use wt_shared::protocol::TransportKind;
 
+use crate::link::drain_writer;
 use crate::link::Inbound;
 use crate::link::Link;
 use crate::link::Outbound;
@@ -107,8 +108,10 @@ async fn serve(socket: WebSocket, state: Arc<AppState>, session_id: String) -> R
 
     let outcome = session::run(link, state, session_id).await;
 
+    // The reader is blocked on a socket that is no longer interesting; the
+    // writer may still owe the client a reply and a close frame.
     reader.abort();
-    writer.abort();
+    drain_writer(writer).await;
 
     outcome
 }
@@ -215,23 +218,39 @@ async fn read_socket(
 
 /// Writes everything the server sends, each as one binary message tagged with
 /// its lane. The only task that touches the sink.
+///
+/// Two queues feed it, because replies and pushes come from different places:
+/// a push is the session's, and travels the [`Outbound`] channel every transport
+/// shares; a reply belongs to the call that asked for it, and the answer arrives
+/// on that call's oneshot rather than through the session at all. Merging them
+/// into one [`Outbound`] would mean giving it a reply variant that `wt.rs` could
+/// never receive — over there a reply goes back down the bidirectional stream it
+/// came in on — so the second queue lives here, in the adapter that needs it.
+///
+/// The interleaving between the two is deliberately unspecified. `select!`
+/// picks at random among ready branches, and that is fine: a reply is
+/// correlated by id and a push is unsolicited, so their relative order carries
+/// no meaning. Biasing one over the other would only invent a starvation risk.
 async fn write_outbound(
     mut sink: SplitSink<WebSocket, Message>,
     mut outbound: mpsc::Receiver<Outbound>,
     mut replies: mpsc::Receiver<Bytes>,
 ) -> Result<()> {
     loop {
+        // `Some(..)` patterns rather than a match on the whole result, so a
+        // closed queue only disables its own branch. Breaking the loop the
+        // moment *either* closes would throw away whatever the other still
+        // held — at teardown, that is an answer the client asked for and a
+        // reply task already computed. `else` fires once both are drained.
         let bytes = tokio::select! {
-            message = outbound.recv() => match message {
-                Some(Outbound::Push(push)) => control(&ServerFrame::Push { push })?,
-                Some(Outbound::Datagram(datagram)) => lane_json(Lane::Datagram, &datagram)?,
-                None => break,
+            Some(message) = outbound.recv() => match message {
+                Outbound::Push(push) => control(&ServerFrame::Push { push })?,
+                Outbound::Datagram(datagram) => lane_json(Lane::Datagram, &datagram)?,
             },
 
-            reply = replies.recv() => match reply {
-                Some(bytes) => bytes,
-                None => break,
-            },
+            Some(bytes) = replies.recv() => bytes,
+
+            else => break,
         };
 
         sink.send(Message::Binary(bytes)).await?;

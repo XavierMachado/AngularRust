@@ -35,6 +35,7 @@ use wt_shared::protocol::TransportKind;
 
 use crate::framing::write_frame;
 use crate::framing::FrameReader;
+use crate::link::drain_writer;
 use crate::link::Inbound;
 use crate::link::Link;
 use crate::link::Outbound;
@@ -98,8 +99,10 @@ pub async fn handle(
 
     let outcome = session::run(link, state, session_id).await;
 
+    // The readers are blocked on a connection that is done; the writer still
+    // owes the push stream a graceful `finish()`.
     readers.abort();
-    writer.abort();
+    drain_writer(writer).await;
 
     outcome
 }

@@ -123,6 +123,30 @@ impl Link {
     }
 }
 
+/// How long a writer task gets to flush after its session ends.
+const DRAIN_GRACE: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Lets a writer task finish what it has already queued, then stops waiting.
+///
+/// When a session ends, its [`LinkSender`] drops and the writer's channel
+/// closes — but there may still be a computed reply or a final notice in front
+/// of it, and both transports end by closing something politely: a QUIC
+/// `finish()`, a WebSocket close frame. Aborting the instant the session
+/// returns would truncate that.
+///
+/// The wait is bounded because the usual reason a session ended is that the
+/// peer went away, and a peer that has gone will never accept the flush.
+/// Dropping a `JoinHandle` detaches rather than cancels, so the timeout path
+/// still has to abort explicitly or the task would outlive the session.
+pub async fn drain_writer(mut writer: tokio::task::JoinHandle<anyhow::Result<()>>) {
+    if tokio::time::timeout(DRAIN_GRACE, &mut writer)
+        .await
+        .is_err()
+    {
+        writer.abort();
+    }
+}
+
 /// How an upload notice should describe the thing that carried it.
 ///
 /// A small thing to get right: "uploaded 2 MiB on one stream" is a claim about
