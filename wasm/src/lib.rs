@@ -54,6 +54,74 @@ impl Default for WasmFrameDecoder {
     }
 }
 
+/// Prefixes a message with its lane and stream id, for transports that carry
+/// every lane on one channel. See `wt_shared::lane`.
+///
+/// `stream` is an f64 because that is what a JavaScript number is. Upload ids
+/// are small counters, so the 2^53 an f64 holds exactly is not a limit anyone
+/// will reach.
+#[wasm_bindgen]
+pub fn encode_lane(lane: u8, stream: f64, body: &[u8]) -> Result<Vec<u8>, JsError> {
+    Ok(wt_shared::lane::encode_lane(
+        lane_from_tag(lane)?,
+        stream as u64,
+        body,
+    ))
+}
+
+/// One decoded lane message. The body stays bytes: the caller knows from the
+/// lane whether to decode it as text or count it as bulk.
+#[wasm_bindgen]
+pub struct DecodedLane {
+    lane: u8,
+    stream: f64,
+    body: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl DecodedLane {
+    #[wasm_bindgen(getter)]
+    pub fn lane(&self) -> u8 {
+        self.lane
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn stream(&self) -> f64 {
+        self.stream
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn body(&self) -> Vec<u8> {
+        self.body.clone()
+    }
+}
+
+/// Splits one received message into its lane, stream id and body, throwing on
+/// a short header, an unknown lane, or an oversized JSON body.
+#[wasm_bindgen]
+pub fn decode_lane(message: &[u8]) -> Result<DecodedLane, JsError> {
+    let decoded =
+        wt_shared::lane::decode_lane(message).map_err(|error| JsError::new(&error.to_string()))?;
+
+    Ok(DecodedLane {
+        lane: decoded.lane as u8,
+        stream: decoded.stream as f64,
+        body: decoded.body.to_vec(),
+    })
+}
+
+fn lane_from_tag(tag: u8) -> Result<wt_shared::lane::Lane, JsError> {
+    use wt_shared::lane::Lane;
+
+    match tag {
+        1 => Ok(Lane::Control),
+        2 => Ok(Lane::Datagram),
+        3 => Ok(Lane::Upload),
+        4 => Ok(Lane::UploadEnd),
+        other => Err(JsError::new(&format!("unknown lane tag {other}"))),
+    }
+}
+
 /// Fibonacci as a decimal string — the same `wt_shared::compute::fib` the
 /// server runs, so the browser and the server cannot disagree.
 #[wasm_bindgen]

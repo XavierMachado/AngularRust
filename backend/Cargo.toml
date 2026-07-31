@@ -4,6 +4,19 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+# A library beside the binary, so `tests/` can drive the server the way a
+# browser does. `doctest = false` is not cosmetic: this crate documents itself
+# in prose, and without it cargo would try to compile every indented example in
+# a `///` comment as a doctest.
+[lib]
+name = "wt_server"
+path = "src/lib.rs"
+doctest = false
+
+[[bin]]
+name = "wt-server"
+path = "src/main.rs"
+
 [dependencies]
 # Protocol types, framing codec, validation — the code the browser also runs.
 wt-shared = { path = "../shared" }
@@ -19,7 +32,17 @@ serde_json = { workspace = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# The plain-HTTP side: discovery, the JSON API, and the built client. Same
-# port number as WebTransport — that one is UDP, this one is TCP.
-axum = "0.8"
+# The plain-HTTP side: discovery, the JSON API, the WebSocket fallback, and the
+# built client. Same port number as WebTransport — that one is UDP, this is TCP.
+# `ws` is not a default feature; without it there is no `axum::extract::ws`.
+axum = { version = "0.8", features = ["ws"] }
 tower-http = { version = "0.6", features = ["cors", "fs"] }
+
+# `StreamExt::split`, to read and write one WebSocket concurrently. Already in
+# the tree via axum's `ws` feature, so it costs no extra compile.
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+
+[dev-dependencies]
+# A real WebSocket client for the end-to-end test, independent of the server's
+# own code path.
+tokio-tungstenite = "0.29"

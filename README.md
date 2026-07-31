@@ -1,10 +1,14 @@
 # WebTransport lab
 
 An Angular client and a Rust server that talk over WebTransport (HTTP/3 on QUIC), using all three
-channels the protocol offers: bidirectional streams, unidirectional streams, and datagrams. The
-same server answers plain HTTP on the same port number — a JSON API through the same handler the
-streams use, and the built app itself — and the protocol logic is one Rust crate that the browser
-runs too, through wasm.
+channels the protocol offers: bidirectional streams, unidirectional streams, and datagrams — and
+over an ordinary WebSocket when QUIC cannot get through. The same server answers plain HTTP on the
+same port number — a JSON API through the same handler the streams use, and the built app itself —
+and the protocol logic is one Rust crate that the browser runs too, through wasm.
+
+Both transports are the *same* application. There is one business layer, one session, one store and
+one set of panels; what differs is only what genuinely differs, and the console says so rather than
+papering over it.
 
 The client isn't a wrapper around a demo — the whole app is the connection. Connecting, trusting
 the certificate, framing messages, measuring round trips, and tearing down are all visible in the
@@ -13,7 +17,7 @@ UI as they happen.
 ```
 client/   Angular 20, standalone components, zoneless, signals
 backend/  Rust, wtransport 0.7, tokio, axum — the wt-server binary
-shared/   Rust that runs on both sides: protocol, framing, validation, compute
+shared/   Rust that runs on both sides: protocol, framing, lanes, validation, compute
 wasm/     wasm-bindgen bindings over shared/, which the client imports
 ```
 
@@ -61,7 +65,11 @@ x86_64-pc-windows-msvc` switches it, or build one-off with
 Open <http://localhost:4200> in Chrome or Edge 97+, press **Connect**. Open a second tab to see the
 room broadcast fan out across sessions.
 
-Firefox and Safari don't ship WebTransport yet; the client says so instead of failing silently.
+Firefox and Safari don't ship WebTransport yet, and plenty of networks block UDP. Either way the
+console falls back to a WebSocket and keeps working — see [When QUIC is
+blocked](#when-quic-is-blocked). The transport in use is named in the masthead, and the selector
+beside it forces one or the other, which is the only way to exercise the fallback on a network
+where QUIC is fine.
 
 ## The certificate problem, and how this handles it
 
@@ -84,14 +92,33 @@ The client fetches that first, then opens the session. Nothing to copy, nothing 
 the client passes no hashes at all, and the discovery endpoint disappears along with its permissive
 CORS layer.
 
-## How the three channels are used
+## Four lanes, two transports
 
-| Channel | Guarantees | Used for |
+The console thinks in *lanes*, not channels. A lane is a job; a channel is what a transport gives
+you to do it with. WebTransport has a channel per lane, which is the luxurious case. A WebSocket
+has exactly one, so the lanes share it.
+
+| Lane | Used for | On WebTransport | On a WebSocket |
+|---|---|---|---|
+| Call | request → reply | a fresh bidirectional stream per call | lane `1`, correlated by id |
+| Push | telemetry, broadcasts, notices, server logs | one server-opened unidirectional stream | lane `1`, same channel |
+| Datagram | ping/pong round-trip timing | real QUIC datagrams | lane `2` — **emulated** |
+| Upload | bulk bytes, backpressure included | a client-opened unidirectional stream | lanes `3`/`4`, raw bytes |
+
+What each one actually promises:
+
+| | WebTransport | WebSocket |
 |---|---|---|
-| Bidirectional stream | ordered, retransmitted, flow-controlled | request → reply; a fresh stream per request |
-| Unidirectional stream (client → server) | same, one way | bulk upload, backpressure included |
-| Unidirectional stream (server → client) | same, one way | telemetry, broadcasts, notices, server logs |
-| Datagram | none of the above | ping/pong round-trip timing |
+| Ordering between lanes | independent — a stalled upload does not delay a call | one ordered channel; bytes queue behind bytes |
+| Datagram delivery | may be lost, may arrive out of order | never lost, never reordered |
+| Upload backpressure | `writer.write()` resolves when flow control allows | poll `bufferedAmount` against a high-water mark |
+| Concurrency of replies | separate streams | separate tasks on the server; the socket stays ordered |
+| Certificate | trusted by fingerprint (see below) | the page's own TLS chain; no fingerprint involved |
+
+The emulated row is the one worth dwelling on. Nothing sent on a WebSocket's datagram lane can be
+dropped, so "Unanswered" can only ever read zero — which is why the console shows `n/a` there,
+labels the lane *emulated*, and draws it dashed in the ledger. A perfect delivery rate there is a
+statement about the socket, not about the network.
 
 A QUIC stream is a byte pipe, not a message pipe: one read can hand you half a message or three of
 them. Both sides therefore frame every message as a 4-byte big-endian length followed by JSON. The
@@ -100,23 +127,69 @@ it to QUIC streams in `backend/src/framing.rs`, and the client runs that same Ru
 behind the facade in `client/src/app/core/framing.ts`. Datagrams need no framing — one datagram is
 one message, and if it doesn't arrive, it doesn't.
 
-The tag key differs per channel (`op` on request streams, `kind` on the push stream, `d` on
-datagrams) so a message that shows up on the wrong channel fails to parse instead of half-working.
+The tag key differs per lane (`op` on calls, `kind` on pushes, `d` on datagrams, `t` on the envelope
+that wraps the first two) so a message that shows up on the wrong one fails to parse instead of
+half-working.
+
+A WebSocket needs one thing more. Its messages are already delimited — one `send` is one `recv` —
+so the length prefix would be pure overhead; what is missing is not the boundary but the *label*.
+So every WebSocket message carries a nine-byte header instead:
+
+```
+byte 0      lane tag: 1 control, 2 datagram, 3 upload, 4 upload-end
+bytes 1..9  stream id, u64 big-endian — which upload; zero on the other lanes
+bytes 9..   body
+```
+
+That header is why bulk upload can stay raw. The alternative, wrapping the bytes in the JSON they
+share a socket with, would base64 a megabyte into 1.4 MB. It lives in `shared/src/lane.rs`, is
+tested there, and the browser runs the same compiled Rust through `client/src/app/core/lane.ts` —
+the same arrangement as the framing codec.
+
+## When QUIC is blocked
+
+WebTransport needs UDP and QUIC. Corporate networks, older middleboxes and some VPNs block both,
+and Firefox and Safari have no WebTransport at all. So the client negotiates:
+
+1. `GET /discovery` says which transports the server offers, best first.
+2. The client intersects that with what the browser can do and what the user picked in the
+   selector — `Automatic`, `WebTransport only`, or `WebSocket only`.
+3. It tries them in order. Every failure is written to the same event log as everything else, so
+   the reason is visible rather than inferred.
+
+On a network that drops UDP, `session.ready` does not reject — it hangs, sometimes for a minute.
+That silence *is* the condition the fallback exists for, so the four-second deadline in
+`webtransport-link.ts` is not a safety net; it is the trigger.
+
+A dropped link is retried with exponential backoff from half a second, capped at eight and bounded
+at five attempts. In `Automatic`, two consecutive WebTransport failures stop it paying that
+deadline again and it continues over the WebSocket, saying so in the log.
+
+The server degrades the same way. If the QUIC endpoint cannot bind — no IPv6 stack, udp/4433
+already taken — it logs a warning, drops `webtransport` from what `/discovery` advertises, and
+serves the WebSocket alone. Refusing to start would take the fallback down along with the thing it
+stands in for.
+
+**One caveat worth knowing:** a WebSocket upgrade is not subject to CORS. The permissive
+`CorsLayer` does nothing for `/ws`, and any page anywhere can open it. Against localhost in
+development that is the same exposure the rest of this listener already has; in production `/ws`
+needs an explicit `Origin` check.
 
 ## The HTTP API, same port, same handler
 
 tcp/4433 also speaks plain HTTP (`backend/src/http.rs`):
 
 ```
-GET  /discovery      the certificate fingerprint, as always
+GET  /discovery      the fingerprint, the WebSocket URL, and which transports are offered
 GET  /health         {"status":"ok"}
-GET  /telemetry      the same numbers the push stream carries, same shape
-POST /api/request    a Request in, a Reply out — the WebTransport op set as JSON
+GET  /telemetry      the same numbers the push lane carries, same shape
+POST /api/request    a Request in, a Reply out — the same op set as plain JSON
+GET  /ws             the WebSocket fallback
 ```
 
 `POST /api/request` deserializes the identical `Request` enum and calls the identical
-`session::answer`, so the API cannot drift from the streams. The fun consequence is that transports
-compose:
+`app::answer`, so no transport can drift from another — and it takes the request bare, exactly as
+it did before there were two. The fun consequence is that transports compose:
 
 ```bash
 curl -X POST http://127.0.0.1:4433/api/request \
@@ -124,8 +197,8 @@ curl -X POST http://127.0.0.1:4433/api/request \
   -d '{"op":"say","author":"curl","text":"hello from HTTP"}'
 ```
 
-lands in the room of every browser connected over WebTransport, because both paths publish to the
-same broadcast bus. The same `MAX_FIB` ceiling guards the one expensive request on both paths — it
+lands in the room of every connected browser — over WebTransport or over a WebSocket,
+indifferently — because every path publishes to the same broadcast bus. The same `MAX_FIB` ceiling guards the one expensive request on both paths — it
 lives in the shared crate, so neither transport can forget it.
 
 When `client/dist/console/browser` exists (override with `STATIC_DIR`), the backend also serves the
@@ -203,6 +276,10 @@ What the client actually runs through it:
   but is now a facade over the shared codec. The vitest spec that used to test the TypeScript
   implementation now tests the compiled binary — `vitest.setup.ts` loads the committed `.wasm`
   with `initSync`, so the same eight tests pin both implementations to one behavior.
+- **Lanes.** `core/lane.ts` is the same arrangement for the WebSocket header, with a spec
+  mirroring the Rust tests. Two implementations of one wire format is exactly what this repo
+  avoids: what the browser tags a message with is byte-for-byte what the server expects, because
+  it is the same function.
 - **Validation.** `say()` runs the server's `validate_say` before sending, and the room panel
   previews the trim live. What the client refuses is what the server would refuse, by
   construction rather than by keeping two rule sets in sync.
@@ -211,11 +288,12 @@ What the client actually runs through it:
 
 The wasm module loads in `main.ts` before Angular boots, so every later call is synchronous. The
 `.wasm` file itself is copied by an assets rule in `angular.json` and fetched once at startup
-(~84 KB, ~30 KB over the wire).
+(~85 KB, ~30 KB over the wire).
 
 The types in `core/protocol.ts` are still written by hand against `shared/src/protocol.rs` — the
 logic no longer duplicates, the type declarations still do. Generating them (ts-rs or typeshare)
-is the natural next step if that drift ever bites.
+is the natural next step if that drift ever bites, and adding a second transport made that list
+longer rather than shorter.
 
 ## Notes on the code
 
@@ -250,20 +328,28 @@ rustfmt.toml
 
 shared/             code that runs on the server and, through wasm, in the browser
   src/
-    protocol.rs   the message types, serializable in both directions
+    protocol.rs   the message types and the call envelope, both directions
     framing.rs    the frame format and chunk-boundary decoder, plus its tests
+    lane.rs       the WebSocket lane header, plus its tests
     validate.rs   the Say rules: trims, limits, the anonymous fallback
     compute.rs    fib, reverse, human_bytes
 
 backend/            the wt-server binary
   src/
-    main.rs       certificate, the two listeners, accept loop
-    http.rs       discovery, /health, /telemetry, /api/request, static serving
-    session.rs    per-session: bidi requests, uploads, datagrams, push stream
+    main.rs       certificate, the listeners, graceful degradation when QUIC won't bind
+    lib.rs        the module map, and why the pieces are split this way
+    app.rs        the business layer: one Request in, one Reply out. Transport-free
+    session.rs    what a session does, written once against a Link
+    link.rs       the seam: a channel in, a channel out, and a label
+    wt.rs         the WebTransport adapter: QUIC channels into the seam
+    ws.rs         the WebSocket adapter: one channel, four lanes, into the same seam
+    http.rs       discovery, /health, /telemetry, /api/request, /ws, static serving
     logging.rs    tracing layer that forwards log events to connected browsers
     framing.rs    the QUIC-stream adapters over the shared codec
-    state.rs      counters and the broadcast bus
+    state.rs      counters, per-transport tallies, and the broadcast bus
     clock.rs      now_ms, kept out of shared/ because SystemTime panics on wasm
+  tests/
+    websocket.rs  the fallback end to end, against a real socket
 
 wasm/               what the browser imports
   src/lib.rs      thin wasm-bindgen casts around shared/ — no logic of its own
@@ -286,17 +372,33 @@ client/
     app/
       app.config.ts               zoneless, plus the global error handler
       app.ts                      layout, masthead, telemetry strip
-      core/transport.service.ts   owns the session, exposes it as signals
+      core/transport.service.ts   the store, and which transport carries it
+      core/link.ts                what the console needs from a transport
+      core/webtransport-link.ts   a channel per lane
+      core/websocket-link.ts      four lanes on one channel
+      core/negotiate.ts           which transport to try, and the backoff. Pure
+      core/pending.ts             calls in flight, waiting on their correlation id
+      core/net.ts                 the globals the transport touches, injectable
       core/framing.ts             facade over the shared codec, via wasm
+      core/lane.ts                facade over the shared lane header, via wasm
       core/framing.spec.ts        the awkward chunk boundaries, run against the wasm
+      core/lane.spec.ts           the lane header, run against the same wasm
+      core/negotiate.spec.ts      the preference matrix and the backoff
+      core/websocket-link.spec.ts the fallback link, driven by a fake socket
       core/wasm.ts                typed doorway to shared compute and validation
       core/protocol.ts            the messages, mirrored in TypeScript by hand
       core/webtransport.types.ts  browser API typings
       core/error-handler.ts       uncaught browser errors, into the same log
-      panels/                     one component per channel, plus the log viewer
+      panels/                     one component per lane, plus the log viewer
 ```
 
 Tests cover `core/`, which runs under plain Node with no Angular or DOM — deliberately where the
-logic that can be subtly wrong lives. The framing spec exercises the committed wasm binary itself.
+logic that can be subtly wrong lives. The framing and lane specs exercise the committed wasm binary
+itself; the WebSocket link is driven by a fake socket, which is what the injection seam in
+`core/net.ts` exists to allow. On the Rust side, `backend/tests/websocket.rs` serves the real
+router on an ephemeral port and drives it with a real client, so the fallback is tested end to end
+rather than in pieces.
+
 Component tests need a DOM and Angular's test harness; add the `@angular/build:unit-test` target to
-`angular.json` when you want them.
+`angular.json` when you want them. The WebTransport link has no automated test — driving it needs a
+browser with a QUIC stack, so it is the one path still verified by hand.

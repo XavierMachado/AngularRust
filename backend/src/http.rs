@@ -1,11 +1,16 @@
-//! The TCP side of port 4433: discovery, the JSON API, and — when a build
-//! exists — the Angular app itself.
+//! The TCP side of port 4433: discovery, the JSON API, the WebSocket fallback,
+//! and — when a build exists — the Angular app itself.
 //!
-//! The API is the same business layer the WebTransport sessions use:
-//! `POST /api/request` deserializes the identical `Request` enum and hands it
-//! to the identical `session::answer`, so the two transports cannot drift.
-//! A `say` posted with curl lands in every connected browser's room, because
-//! it goes through the same broadcast bus.
+//! The API is the same business layer every session uses: `POST /api/request`
+//! deserializes the identical `Request` enum and hands it to the identical
+//! `app::answer`, so no transport can drift from another. A `say` posted with
+//! curl lands in every connected browser's room — over WebTransport or over a
+//! WebSocket, indifferently — because they all go through the same broadcast
+//! bus.
+//!
+//! `GET /ws` is the fallback transport, for networks that block QUIC and for
+//! browsers that have no WebTransport. Note that a WebSocket upgrade is *not*
+//! subject to CORS; see the module docs in `ws.rs`.
 //!
 //! Plain HTTP, and permissive CORS, on purpose: this is the development
 //! setup, where the browser must be able to fetch `/discovery` before it
@@ -24,6 +29,7 @@ use serde::Serialize;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
@@ -33,9 +39,11 @@ use tracing::info;
 use wt_shared::protocol::Reply;
 use wt_shared::protocol::Request;
 use wt_shared::protocol::ServerPush;
+use wt_shared::protocol::TransportKind;
 
-use crate::session;
+use crate::app;
 use crate::state::AppState;
+use crate::ws;
 
 /// Where `npm run build` puts the app, relative to the working directory.
 /// Override with `STATIC_DIR`; if the directory is missing this server is
@@ -43,11 +51,20 @@ use crate::state::AppState;
 const DEFAULT_STATIC_DIR: &str = "client/dist/console/browser";
 
 /// What `GET /discovery` returns.
+///
+/// One fetch tells the client everything it needs to choose a transport: where
+/// each one lives, which ones this server offers, and the fingerprint the
+/// WebTransport handshake needs.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Discovery {
     /// Where to point `new WebTransport(...)`.
     url: String,
+    /// Where to point `new WebSocket(...)` when QUIC is unavailable.
+    websocket_url: String,
+    /// What this server offers, best first. The client intersects this with
+    /// what the browser can do and with the user's preference.
+    transports: Vec<TransportKind>,
     /// SHA-256 of the DER certificate, one byte per element.
     cert_hash: Vec<u8>,
     /// The same digest as hex, for display.
@@ -56,14 +73,18 @@ struct Discovery {
     max_certificate_days: u8,
 }
 
-pub async fn serve(state: Arc<AppState>, port: u16) -> Result<()> {
+/// The router, separated from the listener so tests can serve it on a port the
+/// operating system picks.
+pub fn router(state: Arc<AppState>) -> Router {
     let mut router = Router::new()
         .route("/discovery", get(discovery))
         .route("/health", get(health))
         .route("/telemetry", get(telemetry))
         .route("/api/request", post(api_request))
+        .route("/ws", get(ws::upgrade))
         .with_state(state)
-        // The Angular dev server is a different origin. Development only.
+        // The Angular dev server is a different origin. Development only, and
+        // note it does not apply to the WebSocket upgrade above.
         .layer(CorsLayer::permissive());
 
     let static_dir = static_dir();
@@ -77,11 +98,15 @@ pub async fn serve(state: Arc<AppState>, port: u16) -> Result<()> {
         None => info!("no client build found; API only (the dev server is the front door)"),
     }
 
+    router
+}
+
+pub async fn serve(state: Arc<AppState>, port: u16) -> Result<()> {
     let listener = TcpListener::bind(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port))
         .await
         .context("binding the HTTP listener")?;
 
-    axum::serve(listener, router)
+    axum::serve(listener, router(state))
         .await
         .context("serving HTTP")?;
 
@@ -96,8 +121,20 @@ fn static_dir() -> Option<PathBuf> {
 }
 
 async fn discovery(State(state): State<Arc<AppState>>) -> Json<Discovery> {
+    // Best first: WebTransport is what this lab is about, and the WebSocket is
+    // what happens when it cannot be had. Advertising a QUIC endpoint that did
+    // not come up would cost every client a connect deadline to discover what
+    // this server already knows.
+    let mut transports = Vec::with_capacity(2);
+    if state.webtransport_available.load(Ordering::Relaxed) {
+        transports.push(TransportKind::WebTransport);
+    }
+    transports.push(TransportKind::WebSocket);
+
     Json(Discovery {
         url: state.webtransport_url.clone(),
+        websocket_url: state.websocket_url.clone(),
+        transports,
         cert_hash: state.cert_hash.clone(),
         cert_hash_hex: state.cert_hash_hex.clone(),
         max_certificate_days: 14,
@@ -114,12 +151,14 @@ async fn telemetry(State(state): State<Arc<AppState>>) -> Json<ServerPush> {
     Json(state.telemetry())
 }
 
-/// The second transport into `session::answer`. WebTransport frames the same
-/// `Request` over a stream; this takes it as a JSON body. `MAX_FIB` guards the
-/// one expensive arm on both paths, because it lives in the shared crate.
+/// The third way into `app::answer`. WebTransport frames the same `Request`
+/// over a stream and the WebSocket wraps it in a call envelope; this takes it
+/// as a plain JSON body, unchanged from the day it was the second. `MAX_FIB`
+/// guards the one expensive arm on every path, because it lives in the shared
+/// crate.
 async fn api_request(
     State(state): State<Arc<AppState>>,
     Json(request): Json<Request>,
 ) -> Json<Reply> {
-    Json(session::answer(request, &state))
+    Json(app::answer(request, &state))
 }

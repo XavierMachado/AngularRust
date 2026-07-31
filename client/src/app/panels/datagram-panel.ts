@@ -14,16 +14,28 @@ import { TransportService } from '../core/transport.service';
   selector: 'wt-datagram-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="panel unreliable">
+    <section class="panel unreliable" [class.emulated]="emulated()">
       <header>
         <span class="eyebrow">Datagrams</span>
         <h2>Round trip</h2>
+        @if (emulated()) {
+          <span class="badge">emulated</span>
+        }
       </header>
 
-      <p class="lede">
-        Datagrams skip retransmission and ordering entirely. A missing pong is the transport working
-        as designed, not a bug.
-      </p>
+      @if (emulated()) {
+        <p class="lede">
+          This connection has no datagram channel. Ping and pong here ride the same ordered,
+          reliable socket as everything else: nothing will be lost, nothing reordered, and
+          Unanswered should stay at zero. What the chart measures is queueing delay behind whatever
+          else is on the socket — a real number, about a different thing.
+        </p>
+      } @else {
+        <p class="lede">
+          Datagrams skip retransmission and ordering entirely. A missing pong is the transport
+          working as designed, not a bug.
+        </p>
+      }
 
       <div class="row">
         <button type="button" (click)="once()" [disabled]="!transport.online()">Send one</button>
@@ -48,7 +60,13 @@ import { TransportService } from '../core/transport.service';
         </div>
         <div>
           <dt>Unanswered</dt>
-          <dd>{{ transport.lostDatagrams() }}</dd>
+          @if (emulated()) {
+            <dd class="muted" title="A reliable channel cannot lose one, so this cannot be news.">
+              n/a
+            </dd>
+          } @else {
+            <dd>{{ transport.lostDatagrams() }}</dd>
+          }
         </div>
       </dl>
 
@@ -130,11 +148,34 @@ import { TransportService } from '../core/transport.service';
       font: 400 0.7rem/1.4 var(--font-data);
       color: var(--ink-2);
     }
+
+    .badge {
+      margin-left: auto;
+      font: 500 0.62rem/1 var(--font-data);
+      text-transform: uppercase;
+      letter-spacing: 0.11em;
+      padding: 5px 9px;
+      border-radius: 999px;
+      border: 1px dashed color-mix(in srgb, var(--unreliable) 55%, transparent);
+      color: var(--unreliable);
+    }
+
+    /* Dashed, matching the ledger's emulated lane and the masthead pill. */
+    .panel.emulated {
+      border-style: dashed;
+    }
+
+    .muted {
+      color: var(--ink-2);
+    }
   `,
 })
 export class DatagramPanel implements OnDestroy {
   protected readonly transport = inject(TransportService);
   protected readonly running = signal(false);
+
+  /** True when the live transport has no datagram channel and is faking one. */
+  protected readonly emulated = this.transport.datagramsEmulated;
 
   protected readonly ceiling = computed(() => {
     const samples = this.transport.rtt();

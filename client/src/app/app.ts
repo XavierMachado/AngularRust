@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
+import { describeTransport } from './core/negotiate';
 import { TransportService } from './core/transport.service';
 import { humanBytes } from './core/wasm';
 import { DatagramPanel } from './panels/datagram-panel';
@@ -24,7 +25,7 @@ import { UploadPanel } from './panels/upload-panel';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="masthead">
-      <p class="eyebrow">QUIC · HTTP/3 · one connection, two guarantees</p>
+      <p class="eyebrow">{{ eyebrow() }}</p>
 
       <div class="title">
         <h1>WebTransport console</h1>
@@ -32,9 +33,23 @@ import { UploadPanel } from './panels/upload-panel';
         <div class="link">
           <span class="pill" [class]="transport.state()">{{ transport.state() }}</span>
 
+          @if (transport.transport(); as live) {
+            <span class="pill" [class.emulated]="transport.datagramsEmulated()">{{ live }}</span>
+          }
+
           @if (transport.online()) {
             <button type="button" class="ghost" (click)="transport.disconnect()">Disconnect</button>
           } @else {
+            <select
+              [ngModel]="transport.preference()"
+              (ngModelChange)="transport.preference.set($event)"
+              aria-label="Which transport to use"
+              [disabled]="transport.busy()"
+            >
+              <option value="auto">Automatic</option>
+              <option value="webtransport">WebTransport only</option>
+              <option value="websocket">WebSocket only</option>
+            </select>
             <input
               type="text"
               [(ngModel)]="name"
@@ -52,6 +67,10 @@ import { UploadPanel } from './panels/upload-panel';
       <p class="detail">{{ transport.detail() }}</p>
 
       <dl class="readout">
+        <div>
+          <dt>Transport</dt>
+          <dd>{{ transportLabel() }}</dd>
+        </div>
         <div>
           <dt>Endpoint</dt>
           <dd>{{ transport.endpoint() ?? 'unknown until connect' }}</dd>
@@ -74,7 +93,12 @@ import { UploadPanel } from './panels/upload-panel';
         <dl class="telemetry">
           <div>
             <dt>Sessions</dt>
-            <dd>{{ stats.sessions }}</dd>
+            <dd>
+              {{ stats.sessions }}
+              <span class="split"
+                >{{ stats.sessionsWebtransport }} wt / {{ stats.sessionsWebsocket }} ws</span
+              >
+            </dd>
           </div>
           <div>
             <dt>Frames in</dt>
@@ -109,7 +133,8 @@ import { UploadPanel } from './panels/upload-panel';
       <p>
         The certificate is generated fresh on every server start and trusted by fingerprint, which
         is a development shortcut. In production the server holds a normal CA-issued certificate and
-        the client passes no hashes at all.
+        the client passes no hashes at all. The WebSocket fallback needs none of it: it rides the
+        same TLS chain the page itself does.
       </p>
     </footer>
   `,
@@ -172,6 +197,19 @@ import { UploadPanel } from './panels/upload-panel';
       color: var(--alert);
       border-color: color-mix(in srgb, var(--alert) 45%, transparent);
       background: color-mix(in srgb, var(--alert) 9%, var(--surface));
+    }
+
+    /* The transport pill on the fallback: dashed, the way the ledger draws an
+       emulated lane, so the two read as the same claim. */
+    .pill.emulated {
+      border-style: dashed;
+    }
+
+    .split {
+      display: block;
+      margin-top: 2px;
+      font-size: 0.72rem;
+      color: var(--ink-2);
     }
 
     .detail {
@@ -255,6 +293,26 @@ export class App {
   protected readonly name = signal(suggestName());
 
   protected readonly telemetry = computed(() => this.transport.telemetry());
+
+  /**
+   * The strapline stops asserting QUIC when QUIC is not what is underneath.
+   * Two guarantees is a WebTransport claim; the fallback has one.
+   */
+  protected readonly eyebrow = computed(() => {
+    switch (this.transport.transport()) {
+      case 'webtransport':
+        return 'QUIC · HTTP/3 · one connection, two guarantees';
+      case 'websocket':
+        return 'WebSocket · TCP · one connection, one guarantee';
+      default:
+        return 'QUIC when it gets through, WebSocket when it does not';
+    }
+  });
+
+  protected readonly transportLabel = computed(() => {
+    const live = this.transport.transport();
+    return live ? describeTransport(live) : 'negotiated at connect time';
+  });
 
   protected readonly fingerprint = computed(() => {
     const hex = this.transport.fingerprint();

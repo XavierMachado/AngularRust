@@ -9,14 +9,24 @@ import { TransportService } from '../core/transport.service';
   template: `
     <section class="panel reliable">
       <header>
-        <span class="eyebrow">Unidirectional stream</span>
+        <span class="eyebrow">{{ emulated() ? 'Upload lane' : 'Unidirectional stream' }}</span>
         <h2>Send bulk</h2>
       </header>
 
-      <p class="lede">
-        Writes 16 KiB at a time and waits when the stream's flow control says wait. The server reads
-        to the end, times it, and announces the rate to every session.
-      </p>
+      @if (emulated()) {
+        <p class="lede">
+          Writes 16 KiB at a time on the socket's own upload lane — raw bytes, not base64 — and
+          waits when <code>bufferedAmount</code> says the send buffer is full. That is a number you
+          poll rather than a promise you await, which is the closest a WebSocket gets to a stream's
+          flow control. The server reads to the end, times it, and announces the rate to every
+          session.
+        </p>
+      } @else {
+        <p class="lede">
+          Writes 16 KiB at a time and waits when the stream's flow control says wait. The server
+          reads to the end, times it, and announces the rate to every session.
+        </p>
+      }
 
       <div class="row">
         @for (size of sizes; track size) {
@@ -60,6 +70,13 @@ export class UploadPanel {
   protected readonly sizes = [256, 2048, 16384];
   protected readonly busy = signal(false);
   protected readonly status = signal('Idle.');
+
+  /**
+   * Reused as "is this the WebSocket", because the two differences that matter
+   * here — a lane instead of a stream, polled instead of awaited backpressure —
+   * arrive together with the emulated datagrams.
+   */
+  protected readonly emulated = this.transport.datagramsEmulated;
 
   protected label(kibibytes: number): string {
     return kibibytes >= 1024 ? `${kibibytes / 1024} MiB` : `${kibibytes} KiB`;

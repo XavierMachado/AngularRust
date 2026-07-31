@@ -27,7 +27,8 @@ import { LEDGER_WINDOW_MS, TransportService } from '../core/transport.service';
         <span class="eyebrow">Last 20 seconds</span>
         <span class="key">
           <i class="swatch reliable"></i>streams, reliable
-          <i class="swatch unreliable"></i>datagrams, unreliable
+          <i class="swatch unreliable" [class.emulated]="emulated()"></i>
+          {{ emulated() ? 'datagram lane, emulated' : 'datagrams, unreliable' }}
         </span>
       </figcaption>
       <canvas #surface aria-hidden="true"></canvas>
@@ -80,6 +81,13 @@ import { LEDGER_WINDOW_MS, TransportService } from '../core/transport.service';
       background: var(--unreliable);
     }
 
+    /* Hollow and dashed when the lane is emulated: the same visual claim the
+       datagram panel and the masthead pill make. */
+    .swatch.unreliable.emulated {
+      background: none;
+      border: 1px dashed var(--unreliable);
+    }
+
     canvas {
       display: block;
       width: 100%;
@@ -102,6 +110,9 @@ export class StreamLedger implements AfterViewInit, OnDestroy {
   private frame = 0;
   private timer = 0;
 
+  /** Whether the lower lane is a real datagram channel or a stand-in for one. */
+  protected readonly emulated = this.transport.datagramsEmulated;
+
   readonly reading = () => {
     const ticks = this.transport.ticks();
     if (!ticks.length) {
@@ -110,8 +121,9 @@ export class StreamLedger implements AfterViewInit, OnDestroy {
 
     const streams = ticks.filter((tick) => tick.lane === 'stream').length;
     const datagrams = ticks.length - streams;
+    const lane = this.emulated() ? 'emulated datagrams' : 'datagrams';
 
-    return `${streams} stream events, ${datagrams} datagrams`;
+    return `${streams} stream events, ${datagrams} ${lane}`;
   };
 
   ngAfterViewInit(): void {
