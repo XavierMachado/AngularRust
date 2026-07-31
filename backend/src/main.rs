@@ -1,47 +1,29 @@
-//! A WebTransport server with a plain-HTTP side on the same port number.
-//!
-//! Port 4433/udp  WebTransport over HTTP/3
-//! Port 4433/tcp  `GET /discovery`, `GET /health`, `GET /telemetry`,
-//!                `POST /api/request` — and the built Angular app, when
-//!                `client/dist` exists
-//!
-//! TCP and UDP are separate port namespaces, so both listeners bind 4433 in one
-//! process without conflict — the same way DNS holds 53 on both.
-//!
-//! Why the discovery side-channel: a browser will only open a WebTransport
-//! session to a server it trusts. In development there is no public CA, so the
-//! client passes `serverCertificateHashes` instead. Chrome accepts that only
-//! for an ECDSA P-256 certificate valid for at most 14 days, which is exactly
-//! what `Identity::self_signed` produces. The fingerprint changes on every
-//! restart, so the client fetches it at connect time rather than having it
-//! pasted in.
-
-mod clock;
-mod framing;
-mod http;
-mod logging;
-mod session;
-mod state;
+//! Starts the two listeners. Everything else lives in the library beside this
+//! file, so `tests/` can drive the server the way a browser does — see
+//! `lib.rs` for what the pieces are and why they are split that way.
 
 use anyhow::Context;
 use anyhow::Result;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::error;
 use tracing::info;
-use tracing::info_span;
-use tracing::Instrument;
-use wtransport::endpoint::endpoint_side::Server;
+use tracing::warn;
 use wtransport::tls::Sha256DigestFmt;
 use wtransport::Endpoint;
 use wtransport::Identity;
 use wtransport::ServerConfig;
 
-use crate::logging::LogBus;
-use crate::state::AppState;
+use wt_server::http;
+use wt_server::logging;
+use wt_server::logging::LogBus;
+use wt_server::state::AppState;
+use wt_server::wt;
 
 const WEBTRANSPORT_PORT: u16 = 4433;
-/// Same number, different transport: the HTTP side listens on TCP.
+/// Same number, different transport: the HTTP side listens on TCP, and the
+/// WebSocket fallback rides that same listener.
 const HTTP_PORT: u16 = 4433;
 
 #[tokio::main]
@@ -66,6 +48,10 @@ async fn main() -> Result<()> {
         cert_hash,
         cert_hash_hex,
         format!("https://localhost:{WEBTRANSPORT_PORT}/lab"),
+        // Plain `ws://`, for the same reason the discovery endpoint is plain
+        // HTTP: the self-signed certificate the WebTransport side trusts by
+        // fingerprint would fail an ordinary TLS check.
+        format!("ws://127.0.0.1:{HTTP_PORT}/ws"),
         logs,
     );
 
@@ -78,50 +64,54 @@ async fn main() -> Result<()> {
         .keep_alive_interval(Some(Duration::from_secs(3)))
         .build();
 
-    let endpoint = Endpoint::server(config).context("binding the WebTransport endpoint")?;
+    // A failure here is not fatal, and making it fatal would be the wrong shape
+    // for this server. The whole reason there is a WebSocket transport is that
+    // QUIC is not always available; a host with no IPv6 stack, or with udp/4433
+    // already taken, is the server-side version of exactly that. Refusing to
+    // start would take the fallback down along with the thing it stands in for.
+    let endpoint = match Endpoint::server(config) {
+        Ok(endpoint) => {
+            state.webtransport_available.store(true, Ordering::Relaxed);
+            info!("WebTransport listening on udp/{WEBTRANSPORT_PORT}");
+            Some(endpoint)
+        }
+        Err(error) => {
+            warn!(
+                %error,
+                "could not bind the WebTransport endpoint; serving the WebSocket fallback only"
+            );
+            None
+        }
+    };
 
     spawn_telemetry(state.clone());
 
-    info!("WebTransport listening on udp/{WEBTRANSPORT_PORT}");
-    info!("HTTP on http://127.0.0.1:{HTTP_PORT} — /discovery, /health, /telemetry, /api/request");
+    info!(
+        "HTTP on http://127.0.0.1:{HTTP_PORT} — /discovery, /health, /telemetry, \
+         /api/request, /ws"
+    );
 
-    tokio::select! {
-        result = http::serve(state.clone(), HTTP_PORT) => {
-            error!("HTTP server stopped: {result:?}");
-        }
-        result = accept_sessions(endpoint, state.clone()) => {
-            error!("WebTransport server stopped: {result:?}");
-        }
-    }
-
-    Ok(())
-}
-
-/// Accepts sessions forever, one task each.
-async fn accept_sessions(endpoint: Endpoint<Server>, state: Arc<AppState>) -> Result<()> {
-    for id in 0u64.. {
-        let incoming = endpoint.accept().await;
-        let state = state.clone();
-        let session_id = format!("s{id:03}");
-
-        // The span's `id` field is what tags every log record from this session,
-        // so the console can filter by it.
-        let span = info_span!("session", id = %session_id);
-
-        tokio::spawn(
-            async move {
-                if let Err(error) = session::handle(incoming, state, session_id).await {
-                    info!("session closed: {error}");
+    match endpoint {
+        Some(endpoint) => {
+            tokio::select! {
+                result = http::serve(state.clone(), HTTP_PORT) => {
+                    error!("HTTP server stopped: {result:?}");
+                }
+                result = wt::accept_sessions(endpoint, state.clone()) => {
+                    error!("WebTransport server stopped: {result:?}");
                 }
             }
-            .instrument(span),
-        );
+        }
+        None => {
+            let result = http::serve(state.clone(), HTTP_PORT).await;
+            error!("HTTP server stopped: {result:?}");
+        }
     }
 
     Ok(())
 }
 
-/// One telemetry frame per second to every session.
+/// One telemetry frame per second to every session, on either transport.
 fn spawn_telemetry(state: Arc<AppState>) {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(1));

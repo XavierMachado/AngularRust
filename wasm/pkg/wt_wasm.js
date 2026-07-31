@@ -1,6 +1,53 @@
 /* @ts-self-types="./wt_wasm.d.ts" */
 
 /**
+ * One decoded lane message. The body stays bytes: the caller knows from the
+ * lane whether to decode it as text or count it as bulk.
+ */
+export class DecodedLane {
+    static __wrap(ptr) {
+        const obj = Object.create(DecodedLane.prototype);
+        obj.__wbg_ptr = ptr;
+        DecodedLaneFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        DecodedLaneFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_decodedlane_free(ptr, 0);
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    get body() {
+        const ret = wasm.decodedlane_body(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    get lane() {
+        const ret = wasm.decodedlane_lane(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {number}
+     */
+    get stream() {
+        const ret = wasm.decodedlane_stream(this.__wbg_ptr);
+        return ret;
+    }
+}
+if (Symbol.dispose) DecodedLane.prototype[Symbol.dispose] = DecodedLane.prototype.free;
+
+/**
  * The shared chunk-boundary decoder, holding buffered bytes between pushes.
  */
 export class WasmFrameDecoder {
@@ -49,6 +96,22 @@ export class WasmFrameDecoder {
 if (Symbol.dispose) WasmFrameDecoder.prototype[Symbol.dispose] = WasmFrameDecoder.prototype.free;
 
 /**
+ * Splits one received message into its lane, stream id and body, throwing on
+ * a short header, an unknown lane, or an oversized JSON body.
+ * @param {Uint8Array} message
+ * @returns {DecodedLane}
+ */
+export function decode_lane(message) {
+    const ptr0 = passArray8ToWasm0(message, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_lane(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return DecodedLane.__wrap(ret[0]);
+}
+
+/**
  * Wraps one JSON-encoded message in a length-prefixed frame.
  * @param {string} json
  * @returns {Uint8Array}
@@ -57,6 +120,30 @@ export function encode_frame(json) {
     const ptr0 = passStringToWasm0(json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.encode_frame(ptr0, len0);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+
+/**
+ * Prefixes a message with its lane and stream id, for transports that carry
+ * every lane on one channel. See `wt_shared::lane`.
+ *
+ * `stream` is an f64 because that is what a JavaScript number is. Upload ids
+ * are small counters, so the 2^53 an f64 holds exactly is not a limit anyone
+ * will reach.
+ * @param {number} lane
+ * @param {number} stream
+ * @param {Uint8Array} body
+ * @returns {Uint8Array}
+ */
+export function encode_lane(lane, stream, body) {
+    const ptr0 = passArray8ToWasm0(body, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.encode_lane(lane, stream, ptr0, len0);
     if (ret[3]) {
         throw takeFromExternrefTable0(ret[2]);
     }
@@ -190,6 +277,9 @@ function __wbg_get_imports() {
     };
 }
 
+const DecodedLaneFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_decodedlane_free(ptr, 1));
 const WasmFrameDecoderFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_wasmframedecoder_free(ptr, 1));

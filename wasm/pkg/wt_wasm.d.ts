@@ -2,6 +2,19 @@
 /* eslint-disable */
 
 /**
+ * One decoded lane message. The body stays bytes: the caller knows from the
+ * lane whether to decode it as text or count it as bulk.
+ */
+export class DecodedLane {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    readonly body: Uint8Array;
+    readonly lane: number;
+    readonly stream: number;
+}
+
+/**
  * The shared chunk-boundary decoder, holding buffered bytes between pushes.
  */
 export class WasmFrameDecoder {
@@ -20,9 +33,25 @@ export class WasmFrameDecoder {
 }
 
 /**
+ * Splits one received message into its lane, stream id and body, throwing on
+ * a short header, an unknown lane, or an oversized JSON body.
+ */
+export function decode_lane(message: Uint8Array): DecodedLane;
+
+/**
  * Wraps one JSON-encoded message in a length-prefixed frame.
  */
 export function encode_frame(json: string): Uint8Array;
+
+/**
+ * Prefixes a message with its lane and stream id, for transports that carry
+ * every lane on one channel. See `wt_shared::lane`.
+ *
+ * `stream` is an f64 because that is what a JavaScript number is. Upload ids
+ * are small counters, so the 2^53 an f64 holds exactly is not a limit anyone
+ * will reach.
+ */
+export function encode_lane(lane: number, stream: number, body: Uint8Array): Uint8Array;
 
 /**
  * Fibonacci as a decimal string — the same `wt_shared::compute::fib` the
@@ -52,8 +81,14 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly __wbg_decodedlane_free: (a: number, b: number) => void;
     readonly __wbg_wasmframedecoder_free: (a: number, b: number) => void;
+    readonly decode_lane: (a: number, b: number) => [number, number, number];
+    readonly decodedlane_body: (a: number) => [number, number];
+    readonly decodedlane_lane: (a: number) => number;
+    readonly decodedlane_stream: (a: number) => number;
     readonly encode_frame: (a: number, b: number) => [number, number, number, number];
+    readonly encode_lane: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly fib: (a: number) => [number, number, number, number];
     readonly human_bytes: (a: number) => [number, number];
     readonly reverse: (a: number, b: number) => [number, number];
@@ -63,9 +98,9 @@ export interface InitOutput {
     readonly wasmframedecoder_push: (a: number, b: number, c: number) => [number, number, number, number];
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
-    readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
+    readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __externref_drop_slice: (a: number, b: number) => void;
     readonly __wbindgen_start: () => void;
 }

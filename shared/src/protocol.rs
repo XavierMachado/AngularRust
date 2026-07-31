@@ -1,12 +1,22 @@
 //! The wire protocol.
 //!
-//! Three separate channels, each with its own message set:
+//! Four logical lanes, each with its own message set:
 //!
-//! * **Bidirectional streams** carry `Request` -> `Reply`. Reliable and ordered.
-//!   Framed as `u32` big-endian length + JSON body.
-//! * **A server-opened unidirectional stream** carries `ServerPush`. Same framing.
-//! * **Datagrams** carry `DatagramIn` / `DatagramOut`. Unreliable, unordered,
-//!   one message per datagram, so no framing is needed.
+//! * **Calls** carry `Request` -> `Reply`, correlated by an id.
+//! * **Push** carries `ServerPush`, server to client, for the life of a session.
+//! * **Datagrams** carry `DatagramIn` / `DatagramOut`, one message each.
+//! * **Upload** carries opaque bytes one way, client to server.
+//!
+//! Those lanes are logical, not physical. WebTransport gives each one a channel
+//! of its own — a bidirectional stream per call, one server-opened
+//! unidirectional stream for push, real QUIC datagrams, a client-opened
+//! unidirectional stream per upload. A WebSocket has only one channel, so all
+//! four share it and [`crate::lane`] says which is which.
+//!
+//! [`ClientFrame`] and [`ServerFrame`] are the envelope both transports use.
+//! The correlation id is what a WebSocket needs to tell one in-flight call's
+//! reply from another's; WebTransport could infer it from the stream, but
+//! carrying it on both keeps one encoder, one decoder, one pipeline.
 //!
 //! `rename_all_fields = "camelCase"` keeps the JSON idiomatic for TypeScript
 //! while the Rust side stays snake_case.
@@ -18,6 +28,53 @@
 
 use serde::Deserialize;
 use serde::Serialize;
+
+/// Which transport is carrying a session.
+///
+/// The two are not equivalent and the console says so: WebTransport's datagram
+/// lane is genuinely unreliable, while over a WebSocket it is emulated on a
+/// reliable ordered channel and can only ever look perfect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TransportKind {
+    // Renamed one by one rather than with `rename_all = "camelCase"`, which
+    // would produce `webTransport` — the browser API and every piece of prose
+    // about it spell the protocol names in one lowercase word.
+    #[serde(rename = "webtransport")]
+    WebTransport,
+    #[serde(rename = "websocket")]
+    WebSocket,
+}
+
+impl TransportKind {
+    /// For log lines and notices.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::WebTransport => "WebTransport",
+            Self::WebSocket => "WebSocket",
+        }
+    }
+}
+
+/// Client -> server on the call lane.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "t", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ClientFrame {
+    /// One request awaiting one reply. `id` is unique within the session.
+    Call { id: u64, request: Request },
+}
+
+/// Server -> client on the call and push lanes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "t", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ServerFrame {
+    /// The answer to the [`ClientFrame::Call`] with the same `id`.
+    Result { id: u64, reply: Reply },
+    /// Nested rather than flattened: `ServerPush` is itself an internally
+    /// tagged enum, and serde will not flatten one inside another. The extra
+    /// level of nesting costs a few bytes and buys an unambiguous shape:
+    /// `{"t":"push","push":{"kind":"telemetry",...}}`.
+    Push { push: ServerPush },
+}
 
 /// Client -> server, over a bidirectional stream.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,7 +118,7 @@ pub enum Reply {
     },
 }
 
-/// Server -> client, on the long-lived unidirectional stream opened by the server.
+/// Server -> client, on the push lane, for the life of the session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
@@ -69,17 +126,24 @@ pub enum Reply {
     rename_all_fields = "camelCase"
 )]
 pub enum ServerPush {
-    /// First frame on the stream.
+    /// First push of the session.
     Welcome {
         session_id: String,
         motd: String,
         /// Identifies this process run, so the client can tell a replayed log
         /// record from a fresh one after a restart resets sequence numbers.
         boot: String,
+        /// Which transport the server sees this session arriving on. The client
+        /// knows already; having the server say it too makes a mismatch visible
+        /// rather than silent.
+        transport: TransportKind,
     },
     /// Emitted once per second to every session.
     Telemetry {
         sessions: usize,
+        /// The same total, split by transport, so the fallback is observable.
+        sessions_webtransport: usize,
+        sessions_websocket: usize,
         bytes_in: u64,
         frames_in: u64,
         datagrams_in: u64,

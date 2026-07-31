@@ -1,6 +1,15 @@
-import { computed, Injectable, signal } from '@angular/core';
+import { computed, inject, Injectable, signal } from '@angular/core';
 
-import { encodeFrame, FrameDecoder } from './framing';
+import {
+  describe,
+  withDeadline,
+  type Direction,
+  type Lane,
+  type Link,
+  type LinkEvents,
+} from './link';
+import { backoffMs, label, plan, type Preference } from './negotiate';
+import { DISCOVERY_URL, NET } from './net';
 import type {
   DatagramIn,
   DatagramOut,
@@ -11,15 +20,11 @@ import type {
   ServerLog,
   ServerPush,
   Telemetry,
+  TransportKind,
 } from './protocol';
 import { validateSay } from './wasm';
-import { getWebTransport, type WtSession } from './webtransport.types';
-
-/**
- * Where the server publishes its certificate fingerprint over plain HTTP.
- * Same port number as WebTransport: that one is udp/4433, this is tcp/4433.
- */
-const DISCOVERY_URL = 'http://127.0.0.1:4433/discovery';
+import { WebSocketLink } from './websocket-link';
+import { WebTransportLink } from './webtransport-link';
 
 const MAX_LOG_LINES = 1000;
 const MAX_ROOM_LINES = 100;
@@ -27,11 +32,24 @@ const MAX_RTT_SAMPLES = 120;
 /** How long a tick stays on the ledger, in milliseconds. */
 export const LEDGER_WINDOW_MS = 20_000;
 
+/** How long to wait for the discovery endpoint before treating it as down. */
+const DISCOVERY_TIMEOUT_MS = 5_000;
+
+/** How many times to retry a dropped link before giving up on it. */
+const MAX_RECONNECTS = 5;
+
+/**
+ * How many consecutive WebTransport failures before `auto` stops trying it.
+ *
+ * One failure can be a server restart caught mid-handshake. Two in a row, on a
+ * network that has already refused it once, is the signal to stop paying the
+ * deadline over and over and take the transport that works.
+ */
+const DOWNGRADE_AFTER = 2;
+
 export type LinkState = 'offline' | 'connecting' | 'online' | 'closing' | 'failed';
 
-/** Which of the two transports an event used, and which way it went. */
-export type Lane = 'stream' | 'datagram';
-export type Direction = 'in' | 'out';
+export type { Direction, Lane, Preference };
 
 export interface LedgerTick {
   at: number;
@@ -74,14 +92,38 @@ export interface RttSample {
   ms: number;
 }
 
+/**
+ * The console's store, and the thing that decides which transport carries it.
+ *
+ * Everything below the `Link` interface — streams, sockets, lanes, framing —
+ * lives in `webtransport-link.ts` and `websocket-link.ts`. What is left here is
+ * the state every panel reads, the reducers that maintain it, and the
+ * negotiation that picks a link and keeps one alive.
+ */
 @Injectable({ providedIn: 'root' })
 export class TransportService {
+  private readonly net = inject(NET);
+  private readonly discoveryUrl = inject(DISCOVERY_URL);
+
   readonly state = signal<LinkState>('offline');
   readonly detail = signal('Not connected');
   readonly sessionId = signal<string | null>(null);
   readonly motd = signal<string | null>(null);
   readonly fingerprint = signal<string | null>(null);
   readonly endpoint = signal<string | null>(null);
+
+  /** What the user asked for. `auto` tries WebTransport and falls back. */
+  readonly preference = signal<Preference>('auto');
+  /** What is actually carrying the session, once one is up. */
+  readonly transport = signal<TransportKind | null>(null);
+
+  /**
+   * True when the live transport has no datagram channel and is emulating one.
+   *
+   * The panels read this rather than comparing against `'websocket'`, so the
+   * claim stays attached to the transport that makes it.
+   */
+  readonly datagramsEmulated = signal(false);
 
   readonly telemetry = signal<Telemetry | null>(null);
   readonly room = signal<RoomLine[]>([]);
@@ -107,13 +149,18 @@ export class TransportService {
     return sorted[Math.floor(sorted.length / 2)];
   });
 
-  /** Datagrams sent that never came back. */
-  readonly lostDatagrams = computed(() => this.pingsSent - this.rtt().length);
+  /**
+   * Datagrams sent that never came back.
+   *
+   * `pingsSent` is a signal rather than a plain field so this recomputes when a
+   * ping goes out, not only when one comes back. The moment pongs stop is
+   * exactly when this number is worth reading, and a plain field froze it there.
+   */
+  private readonly pingsSent = signal(0);
+  readonly lostDatagrams = computed(() => this.pingsSent() - this.rtt().length);
 
-  private session: WtSession | null = null;
-  private datagramWriter: WritableStreamDefaultWriter<Uint8Array> | null = null;
+  private link: Link | null = null;
   private pingSeq = 0;
-  private pingsSent = 0;
   private nextId = 1;
 
   /** Server log sequence numbers already shown, so replayed history doesn't duplicate. */
@@ -124,127 +171,53 @@ export class TransportService {
   /** Set once so the room can tell this session's own lines apart. */
   private author = '';
 
+  /** True between `connect()` and `disconnect()`: whether to keep retrying. */
+  private wanted = false;
+  private reconnects = 0;
+  private webTransportFailures = 0;
+  private announcedDowngrade = false;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+
   async connect(author: string): Promise<void> {
     if (this.state() === 'connecting' || this.state() === 'online') {
       return;
     }
 
     this.author = author;
+    this.wanted = true;
+    this.reconnects = 0;
+    this.webTransportFailures = 0;
+    this.announcedDowngrade = false;
 
-    const WebTransportCtor = getWebTransport();
-    if (!WebTransportCtor) {
-      this.fail('This browser has no WebTransport. Chrome or Edge 97 and up have it.');
-      return;
-    }
-
-    this.state.set('connecting');
-    this.detail.set('Fetching the certificate fingerprint');
-
-    let discovery: Discovery;
-    try {
-      discovery = await this.fetchDiscovery();
-    } catch {
-      this.fail(`No answer from ${DISCOVERY_URL}. Start the server with cargo run.`);
-      return;
-    }
-
-    this.fingerprint.set(discovery.certHashHex);
-    this.endpoint.set(discovery.url);
-    this.detail.set(`Opening a session to ${discovery.url}`);
-
-    // The browser trusts this one certificate by fingerprint. Nothing else
-    // about it changes: the session is still QUIC, still encrypted.
-    const session = new WebTransportCtor(discovery.url, {
-      serverCertificateHashes: [
-        { algorithm: 'sha-256', value: Uint8Array.from(discovery.certHash) },
-      ],
-    });
-
-    try {
-      await session.ready;
-    } catch (error) {
-      this.fail(
-        `The session was refused: ${describe(error)}. ` +
-          'A stale fingerprint is the usual cause; restarting the server issues a new one.',
-      );
-      return;
-    }
-
-    this.session = session;
-    this.state.set('online');
-    this.detail.set('Session open');
-    this.write('link', 'Session established');
-
-    this.datagramWriter = session.datagrams.writable.getWriter();
-
-    void this.readDatagrams(session);
-    void this.readPushStream(session);
-
-    void session.closed
-      .then((info) => {
-        this.teardown(
-          info?.reason ? `Server closed the session: ${info.reason}` : 'Session closed',
-        );
-      })
-      .catch((error: unknown) => {
-        this.teardown(`Session dropped: ${describe(error)}`, 'warn');
-      });
+    await this.establish();
   }
 
   disconnect(): void {
-    if (!this.session) {
+    this.wanted = false;
+    this.cancelRetry();
+
+    if (!this.link) {
+      this.state.set('offline');
+      this.detail.set('Not connected');
       return;
     }
 
     this.state.set('closing');
-    this.session.close({ closeCode: 0, reason: 'client finished' });
+    this.link.close();
   }
 
   /**
-   * Sends one request on its own bidirectional stream and waits for the reply.
+   * Sends one request and waits for the reply.
    *
-   * Each request gets a fresh stream, so a slow reply never blocks a fast one:
-   * that is the whole point of stream multiplexing over a single connection.
+   * On WebTransport each call gets its own stream; on a WebSocket they share
+   * one channel and are told apart by a correlation id. Either way a slow reply
+   * never blocks a fast one, and this method cannot tell which is happening.
    */
   async request(request: Request): Promise<Reply> {
-    const session = this.requireSession();
-    const stream = await session.createBidirectionalStream();
-
-    this.tick('stream', 'out');
-
-    const writer = stream.writable.getWriter();
-    await writer.write(encodeFrame(request));
-    await writer.close();
-
-    const reader = stream.readable.getReader();
-    const decoder = new FrameDecoder();
-    const frames: Reply[] = [];
-
-    try {
-      for (;;) {
-        const { value, done } = await reader.read();
-
-        if (value) {
-          frames.push(...decoder.push<Reply>(value));
-        }
-
-        if (done) {
-          break;
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
-
-    if (!frames.length) {
-      throw new Error('The server closed the stream without replying');
-    }
-
-    this.tick('stream', 'in');
-    return frames[0];
+    return this.requireLink().call(request);
   }
 
-  /** Broadcasts a line to every connected session. */
+  /** Broadcasts a line to every connected session, on either transport. */
   async say(text: string): Promise<void> {
     // The server's own rules, run here first through wasm: what leaves this
     // tab is already trimmed the way the server would trim it, and anything
@@ -259,44 +232,15 @@ export class TransportService {
 
   /**
    * Streams bytes one way with no reply, the shape of a file upload. The server
-   * measures throughput and announces it on the push stream.
+   * measures throughput and announces it to every session.
    */
   async upload(kibibytes: number): Promise<void> {
-    const session = this.requireSession();
-    const stream = await session.createUnidirectionalStream();
-    const writer = stream.getWriter();
-
-    const chunk = new Uint8Array(16 * 1024);
-    crypto.getRandomValues(chunk);
-
-    const total = kibibytes * 1024;
-    let sent = 0;
-
-    try {
-      while (sent < total) {
-        const size = Math.min(chunk.length, total - sent);
-
-        // `write` resolves when the stream's flow control accepts more, so this
-        // loop applies backpressure instead of buffering the whole payload.
-        await writer.write(chunk.slice(0, size));
-
-        sent += size;
-        this.tick('stream', 'out', 0.9);
-      }
-
-      await writer.close();
-      this.write('stream', `Sent ${format(total)} on one unidirectional stream`);
-    } catch (error) {
-      writer.abort(describe(error)).catch(() => undefined);
-      throw error;
-    }
+    await this.requireLink().upload(kibibytes * 1024);
   }
 
-  /** Sends one datagram. It may never arrive, and that is not an error. */
+  /** Sends one datagram. On WebTransport it may never arrive, and that is not an error. */
   async ping(): Promise<void> {
-    if (!this.datagramWriter) {
-      throw new Error('Not connected');
-    }
+    const link = this.requireLink();
 
     const message: DatagramIn = {
       d: 'ping',
@@ -304,9 +248,8 @@ export class TransportService {
       sentAtMs: performance.now(),
     };
 
-    this.pingsSent += 1;
-    await this.datagramWriter.write(new TextEncoder().encode(JSON.stringify(message)));
-    this.tick('datagram', 'out', 0.5);
+    this.pingsSent.update((sent) => sent + 1);
+    await link.sendDatagram(message);
   }
 
   clearLog(): void {
@@ -322,98 +265,139 @@ export class TransportService {
     this.write(source, text, level);
   }
 
-  private async fetchDiscovery(): Promise<Discovery> {
-    const response = await fetch(DISCOVERY_URL, { cache: 'no-store' });
+  /** Fetches discovery, then walks the negotiated order until one connects. */
+  private async establish(): Promise<void> {
+    this.state.set('connecting');
+    this.detail.set('Asking the server what it offers');
 
-    if (!response.ok) {
-      throw new Error(`Discovery returned ${response.status}`);
+    let discovery: Discovery;
+    try {
+      // On a deadline, because `fetch` has none of its own: a host that accepts
+      // the connection and then says nothing would leave this awaiting forever,
+      // and a retry loop that never gets to run is not a retry loop.
+      discovery = await withDeadline(
+        this.net.fetchJson<Discovery>(this.discoveryUrl),
+        DISCOVERY_TIMEOUT_MS,
+        `${this.discoveryUrl} did not answer in time`,
+      );
+    } catch {
+      this.fail(`No answer from ${this.discoveryUrl}. Start the server with cargo run.`);
+      this.scheduleRetry();
+      return;
     }
 
-    return (await response.json()) as Discovery;
+    this.fingerprint.set(discovery.certHashHex);
+
+    const { attempt, excluded } = plan(this.effectivePreference(), discovery, {
+      webTransport: this.net.webTransport !== null,
+      webSocket: this.net.webSocket !== null,
+    });
+
+    for (const reason of excluded) {
+      this.write('link', reason, 'warn');
+    }
+
+    if (!attempt.length) {
+      this.fail('No transport this browser and this server both support.');
+      return;
+    }
+
+    for (const kind of attempt) {
+      const link =
+        kind === 'webtransport' ? new WebTransportLink(this.net) : new WebSocketLink(this.net);
+
+      this.detail.set(`Opening a ${label(kind)} session`);
+
+      try {
+        await link.open(discovery, this.events());
+      } catch (error) {
+        if (kind === 'webtransport') {
+          this.webTransportFailures += 1;
+        }
+
+        this.write('link', `${label(kind)} did not come up: ${describe(error)}`, 'warn');
+        continue;
+      }
+
+      // Opening takes seconds, and the user may have given up during them.
+      // Adopting now would leave a live session nobody asked for.
+      if (!this.wanted) {
+        link.close();
+        return;
+      }
+
+      this.adopt(link);
+      return;
+    }
+
+    // Everything on the list was tried and none of it worked.
+    this.fail('Every available transport refused the connection.');
+    this.scheduleRetry();
   }
 
-  /** Reads pongs until the session ends. */
-  private async readDatagrams(session: WtSession): Promise<void> {
-    const reader = session.datagrams.readable.getReader();
-    const decoder = new TextDecoder();
-
-    try {
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) {
-          return;
-        }
-
-        this.tick('datagram', 'in', 0.5);
-
-        const message = JSON.parse(decoder.decode(value)) as DatagramOut;
-        if (message.d !== 'pong') {
-          continue;
-        }
-
-        const elapsed = performance.now() - message.sentAtMs;
-
-        this.rtt.update((samples) =>
-          [...samples, { seq: message.seq, ms: Math.round(elapsed * 100) / 100 }].slice(
-            -MAX_RTT_SAMPLES,
-          ),
+  /** In `auto`, stop paying WebTransport's deadline once it has clearly failed. */
+  private effectivePreference(): Preference {
+    if (this.preference() === 'auto' && this.webTransportFailures >= DOWNGRADE_AFTER) {
+      // Once, not on every retry: the reason is news the first time and noise
+      // the next four.
+      if (!this.announcedDowngrade) {
+        this.announcedDowngrade = true;
+        this.write(
+          'link',
+          'QUIC does not appear to get through here; continuing over WebSocket.',
+          'warn',
         );
       }
-    } catch (error) {
-      if (this.state() === 'online') {
-        this.write('datagram', `Datagram reader stopped: ${describe(error)}`, 'warn');
-      }
+
+      return 'websocket';
+    }
+
+    return this.preference();
+  }
+
+  private adopt(link: Link): void {
+    this.link = link;
+    this.reconnects = 0;
+    this.transport.set(link.kind);
+    this.datagramsEmulated.set(link.datagramsAreEmulated);
+    this.endpoint.set(link.endpoint);
+    this.state.set('online');
+    this.detail.set(`Session open over ${label(link.kind)}`);
+    this.write('link', `Session established over ${label(link.kind)}`);
+
+    if (link.datagramsAreEmulated) {
+      this.write(
+        'link',
+        'This transport has no datagram channel, so the datagram lane is emulated on the socket: nothing there can be lost or reordered.',
+      );
     }
   }
 
-  /**
-   * Accepts the unidirectional stream the server opens and reads pushes off it
-   * for the life of the session.
-   */
-  private async readPushStream(session: WtSession): Promise<void> {
-    const streams = session.incomingUnidirectionalStreams.getReader();
-
-    try {
-      for (;;) {
-        const { value, done } = await streams.read();
-        if (done) {
-          return;
-        }
-
-        void this.consumePushes(value);
-      }
-    } catch (error) {
-      if (this.state() === 'online') {
-        this.write('stream', `Stopped accepting streams: ${describe(error)}`, 'warn');
-      }
-    }
+  /** The callbacks a link reports through. One shape, used by both. */
+  private events(): LinkEvents {
+    return {
+      onPush: (push) => this.applyPush(push),
+      onPong: (pong) => this.recordRtt(pong),
+      onTick: (lane, direction, weight) => this.tick(lane, direction, weight),
+      onNote: (source, text, level) => this.write(source, text, level ?? 'info'),
+      onClosed: (reason, level) => this.teardown(reason, level ?? 'info'),
+    };
   }
 
-  private async consumePushes(stream: ReadableStream<Uint8Array>): Promise<void> {
-    const reader = stream.getReader();
-    const decoder = new FrameDecoder();
-
-    try {
-      for (;;) {
-        const { value, done } = await reader.read();
-
-        if (value) {
-          this.tick('stream', 'in', 0.6);
-
-          for (const push of decoder.push<ServerPush>(value)) {
-            this.applyPush(push);
-          }
-        }
-
-        if (done) {
-          return;
-        }
-      }
-    } catch (error) {
-      if (this.state() === 'online') {
-        this.write('stream', `Push stream ended: ${describe(error)}`, 'warn');
-      }
+  private requireLink(): Link {
+    if (!this.link || this.state() !== 'online') {
+      throw new Error('Not connected');
     }
+
+    return this.link;
+  }
+
+  private recordRtt(pong: DatagramOut): void {
+    const elapsed = performance.now() - pong.sentAtMs;
+
+    this.rtt.update((samples) =>
+      [...samples, { seq: pong.seq, ms: Math.round(elapsed * 100) / 100 }].slice(-MAX_RTT_SAMPLES),
+    );
   }
 
   private applyPush(push: ServerPush): void {
@@ -421,6 +405,16 @@ export class TransportService {
       case 'welcome':
         this.sessionId.set(push.sessionId);
         this.motd.set(push.motd);
+
+        // The server's own view of which transport this is. It should always
+        // agree with ours; if it ever does not, that is worth seeing.
+        if (push.transport !== this.transport()) {
+          this.write(
+            'link',
+            `The server calls this session ${push.transport}, not ${this.transport()}.`,
+            'warn',
+          );
+        }
 
         // A different boot id means the server restarted and its sequence
         // numbers began again, so previously seen ones mean nothing now.
@@ -488,14 +482,6 @@ export class TransportService {
     );
   }
 
-  private requireSession(): WtSession {
-    if (!this.session || this.state() !== 'online') {
-      throw new Error('Not connected');
-    }
-
-    return this.session;
-  }
-
   private tick(lane: Lane, direction: Direction, weight = 0.7): void {
     const now = performance.now();
 
@@ -521,33 +507,58 @@ export class TransportService {
   }
 
   private teardown(reason: string, level: LogLevel = 'info'): void {
-    this.session = null;
-    this.datagramWriter = null;
+    this.link = null;
+    this.transport.set(null);
+    this.datagramsEmulated.set(false);
     this.sessionId.set(null);
     this.telemetry.set(null);
     this.state.set('offline');
     this.detail.set(reason);
     this.write('link', reason, level);
-  }
-}
 
-function describe(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
+    // A new session gets a new count. Carrying the old one over would report
+    // the previous connection's unanswered pings against this one.
+    this.pingSeq = 0;
+    this.pingsSent.set(0);
+    this.rtt.set([]);
 
-  return String(error);
-}
-
-function format(bytes: number): string {
-  const units = ['B', 'KiB', 'MiB'];
-  let value = bytes;
-  let unit = 0;
-
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
+    if (this.wanted) {
+      this.scheduleRetry();
+    }
   }
 
-  return `${unit === 0 ? value : value.toFixed(1)} ${units[unit]}`;
+  /** Tries again after a growing pause, until the attempts run out. */
+  private scheduleRetry(): void {
+    if (!this.wanted || this.retryTimer) {
+      return;
+    }
+
+    if (this.reconnects >= MAX_RECONNECTS) {
+      this.wanted = false;
+      this.fail(`Gave up after ${MAX_RECONNECTS} attempts. Press Connect to try again.`);
+      return;
+    }
+
+    const wait = backoffMs(this.reconnects);
+    this.reconnects += 1;
+
+    const seconds = Math.round(wait / 100) / 10;
+    this.detail.set(`Reconnecting in ${seconds}s`);
+    this.write('link', `Reconnecting in ${seconds}s (attempt ${this.reconnects})`);
+
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+
+      if (this.wanted) {
+        void this.establish();
+      }
+    }, wait);
+  }
+
+  private cancelRetry(): void {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+  }
 }

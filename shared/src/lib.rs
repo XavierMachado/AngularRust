@@ -7,5 +7,6 @@
 
 pub mod compute;
 pub mod framing;
+pub mod lane;
 pub mod protocol;
 pub mod validate;

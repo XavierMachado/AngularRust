@@ -54,7 +54,23 @@ const CHANNEL_DEPTH: usize = 512;
 
 /// The transport stack describes every packet it touches. Useful in a terminal
 /// with a narrow filter, unusable as a live feed.
-const MUTED_TARGETS: [&str; 6] = ["quinn", "rustls", "h3", "hyper", "tower", "axum"];
+///
+/// `tungstenite` and `tokio_tungstenite` are on the list for a sharper reason
+/// than noise: they are the WebSocket machinery underneath a session's own
+/// writer, so their events are exactly the ones that could describe the act of
+/// shipping a log line. The task-local marker is what actually closes that
+/// loop, but a 16 MiB upload would otherwise put thousands of lines a second
+/// through the filter before it did.
+const MUTED_TARGETS: [&str; 8] = [
+    "quinn",
+    "rustls",
+    "h3",
+    "hyper",
+    "tower",
+    "axum",
+    "tungstenite",
+    "tokio_tungstenite",
+];
 
 tokio::task_local! {
     /// Set inside a session's push task. See the module docs.
