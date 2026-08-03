@@ -12,8 +12,9 @@
 /client-lit/node_modules/
 /client-lit/dist/
 
-# Desktop shell (its own target; the crate opts out of the workspace)
+# Desktop shells (their own targets; the crates opt out of the workspace)
 /desktop/target/
+/desktop/cef/target/
 
 # Editors and OS
 .DS_Store
