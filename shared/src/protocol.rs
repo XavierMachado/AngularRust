@@ -31,9 +31,11 @@ use serde::Serialize;
 
 /// Which transport is carrying a session.
 ///
-/// The two are not equivalent and the console says so: WebTransport's datagram
-/// lane is genuinely unreliable, while over a WebSocket it is emulated on a
-/// reliable ordered channel and can only ever look perfect.
+/// The three are not equivalent and the console says so: WebTransport's
+/// datagram lane is genuinely unreliable; over a WebSocket it is emulated on a
+/// reliable ordered channel and can only ever look perfect; over IPC there is
+/// no wire at all — the desktop shell's webview talks to the server in the
+/// same process, so even "sending" is a figure of speech.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TransportKind {
     // Renamed one by one rather than with `rename_all = "camelCase"`, which
@@ -43,6 +45,9 @@ pub enum TransportKind {
     WebTransport,
     #[serde(rename = "websocket")]
     WebSocket,
+    /// Tauri IPC, available only inside the desktop shell.
+    #[serde(rename = "ipc")]
+    Ipc,
 }
 
 impl TransportKind {
@@ -51,6 +56,7 @@ impl TransportKind {
         match self {
             Self::WebTransport => "WebTransport",
             Self::WebSocket => "WebSocket",
+            Self::Ipc => "Tauri IPC",
         }
     }
 }
@@ -144,6 +150,7 @@ pub enum ServerPush {
         /// The same total, split by transport, so the fallback is observable.
         sessions_webtransport: usize,
         sessions_websocket: usize,
+        sessions_ipc: usize,
         bytes_in: u64,
         frames_in: u64,
         datagrams_in: u64,

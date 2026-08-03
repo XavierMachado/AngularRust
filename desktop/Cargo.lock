@@ -5078,6 +5078,7 @@ dependencies = [
  "tauri-build",
  "tokio",
  "wt-server",
+ "wt-shared",
 ]
 
 [[package]]

@@ -11,8 +11,8 @@
  * byte in `lane.ts`.
  */
 
-/** Which transport is carrying the session. */
-export type TransportKind = 'webtransport' | 'websocket';
+/** Which transport is carrying the session. `ipc` exists only in the desktop shell. */
+export type TransportKind = 'webtransport' | 'websocket' | 'ipc';
 
 /** Client to server on the call lane. */
 export type ClientFrame = { t: 'call'; id: number; request: Request };
@@ -44,6 +44,7 @@ export interface Telemetry {
   /** The same total, split by transport, so the fallback is observable. */
   sessionsWebtransport: number;
   sessionsWebsocket: number;
+  sessionsIpc: number;
   bytesIn: number;
   framesIn: number;
   datagramsIn: number;

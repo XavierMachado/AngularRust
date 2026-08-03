@@ -21,7 +21,9 @@
 //! does and knows only about a [`link::Link`], which is a channel in and a
 //! channel out. [`wt`] and [`ws`] are the adapters that fill those channels —
 //! one from QUIC's several channels, one from a WebSocket's single channel
-//! demultiplexed by `wt_shared::lane`.
+//! demultiplexed by `wt_shared::lane`. The desktop shell in `desktop/` adds a
+//! third adapter over Tauri IPC, filling the same channels with no wire at
+//! all — which is the seam doing exactly what it was built to do.
 //!
 //! What differs is only what genuinely differs. A WebSocket cannot lose a
 //! datagram, so its datagram lane is an emulation, and the client is told which

@@ -9,6 +9,7 @@
 
 import { InjectionToken } from '@angular/core';
 
+import { getTauriIpc, type TauriIpc } from './tauri-ipc';
 import { getWebTransport, type WtConstructor } from './webtransport.types';
 
 /** The constructor shape, structurally typed the way `WtConstructor` is. */
@@ -19,6 +20,8 @@ export interface Net {
   /** Null in a browser without WebTransport — Firefox and Safari, today. */
   readonly webTransport: WtConstructor | null;
   readonly webSocket: WsConstructor | null;
+  /** Null outside the desktop shell, which is everywhere but the desktop shell. */
+  readonly tauriIpc: TauriIpc | null;
 }
 
 function browserNet(): Net {
@@ -36,6 +39,7 @@ function browserNet(): Net {
     },
     webTransport: getWebTransport(),
     webSocket: typeof candidate === 'function' ? (candidate as WsConstructor) : null,
+    tauriIpc: getTauriIpc(),
   };
 }
 

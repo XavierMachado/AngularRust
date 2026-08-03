@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 
 import { TransportService } from '../core/transport.service';
 
@@ -9,11 +9,17 @@ import { TransportService } from '../core/transport.service';
   template: `
     <section class="panel reliable">
       <header>
-        <span class="eyebrow">{{ emulated() ? 'Upload lane' : 'Unidirectional stream' }}</span>
+        <span class="eyebrow">{{ eyebrow() }}</span>
         <h2>Send bulk</h2>
       </header>
 
-      @if (emulated()) {
+      @if (ipc()) {
+        <p class="lede">
+          Sends 16 KiB per invoke across the IPC boundary — real bytes, awaited one chunk at a time,
+          and that await is the flow control. The server tallies the bytes, times it, and announces
+          the rate to every session.
+        </p>
+      } @else if (emulated()) {
         <p class="lede">
           Writes 16 KiB at a time on the socket's own upload lane — raw bytes, not base64 — and
           waits when <code>bufferedAmount</code> says the send buffer is full. That is a number you
@@ -77,6 +83,12 @@ export class UploadPanel {
    * arrive together with the emulated datagrams.
    */
   protected readonly emulated = this.transport.datagramsEmulated;
+
+  protected readonly ipc = computed(() => this.transport.transport() === 'ipc');
+
+  protected readonly eyebrow = computed(() =>
+    this.ipc() ? 'Chunked invokes' : this.emulated() ? 'Upload lane' : 'Unidirectional stream',
+  );
 
   protected label(kibibytes: number): string {
     return kibibytes >= 1024 ? `${kibibytes / 1024} MiB` : `${kibibytes} KiB`;

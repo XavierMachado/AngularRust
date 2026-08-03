@@ -179,6 +179,8 @@ export class AppShell extends SignalWatcher(LitElement) {
         return 'QUIC · HTTP/3 · one connection, two guarantees';
       case 'websocket':
         return 'WebSocket · TCP · one connection, one guarantee';
+      case 'ipc':
+        return 'Tauri IPC · one process, zero wires';
       default:
         return 'QUIC when it gets through, WebSocket when it does not';
     }
@@ -233,13 +235,18 @@ export class AppShell extends SignalWatcher(LitElement) {
                       ?disabled=${busy}
                       aria-label="Which transport to use"
                       @change=${(event: Event) =>
-                      transport.preference.set(
-                        (event.target as HTMLSelectElement).value as Preference,
-                      )}
+                        transport.preference.set(
+                          (event.target as HTMLSelectElement).value as Preference,
+                        )}
                     >
                       <option value="auto">Automatic</option>
                       <option value="webtransport">WebTransport only</option>
                       <option value="websocket">WebSocket only</option>
+                      ${
+                        transport.ipcAvailable
+                          ? html`<option value="ipc">In-process only</option>`
+                          : ''
+                      }
                     </select>
                     <input
                       type="text"
@@ -248,7 +255,7 @@ export class AppShell extends SignalWatcher(LitElement) {
                       aria-label="Name to use in the room"
                       ?disabled=${busy}
                       @input=${(event: Event) =>
-                      (this.name = (event.target as HTMLInputElement).value)}
+                        (this.name = (event.target as HTMLInputElement).value)}
                     />
                     <button ?disabled=${busy} @click=${this.connect}>
                       ${busy ? 'Connecting…' : 'Connect'}

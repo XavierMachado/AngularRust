@@ -27,9 +27,17 @@ const WEBTRANSPORT_PORT: u16 = 4433;
 /// WebSocket fallback rides that same listener.
 const HTTP_PORT: u16 = 4433;
 
-/// Brings up the whole server — logging, certificate, both listeners, the
-/// telemetry ticker — and runs until a listener stops.
-pub async fn run() -> Result<()> {
+/// Everything `prepare` set up, ready to serve. The state is public so an
+/// embedder can hand sessions to the server by other means — the desktop shell
+/// wires its IPC transport straight into it.
+pub struct Boot {
+    pub state: Arc<AppState>,
+    identity: Identity,
+}
+
+/// Logging, certificate and state — everything that can be done before any
+/// listener binds. Call once per process.
+pub fn prepare() -> Result<Boot> {
     // The bus exists before the subscriber does, because the subscriber writes
     // into it.
     let logs = LogBus::new();
@@ -59,58 +67,74 @@ pub async fn run() -> Result<()> {
 
     info!("certificate sha-256 {}", state.cert_hash_hex);
 
-    let config = ServerConfig::builder()
-        .with_bind_default(WEBTRANSPORT_PORT)
-        // On wtransport 0.6.x this is `.with_identity(&identity)`.
-        .with_identity(identity)
-        .keep_alive_interval(Some(Duration::from_secs(3)))
-        .build();
+    Ok(Boot { state, identity })
+}
 
-    // A failure here is not fatal, and making it fatal would be the wrong shape
-    // for this server. The whole reason there is a WebSocket transport is that
-    // QUIC is not always available; a host with no IPv6 stack, or with udp/4433
-    // already taken, is the server-side version of exactly that. Refusing to
-    // start would take the fallback down along with the thing it stands in for.
-    let endpoint = match Endpoint::server(config) {
-        Ok(endpoint) => {
-            state.webtransport_available.store(true, Ordering::Relaxed);
-            info!("WebTransport listening on udp/{WEBTRANSPORT_PORT}");
-            Some(endpoint)
-        }
-        Err(error) => {
-            warn!(
-                %error,
-                "could not bind the WebTransport endpoint; serving the WebSocket fallback only"
-            );
-            None
-        }
-    };
+impl Boot {
+    /// Binds the listeners, starts the telemetry ticker, and runs until a
+    /// listener stops.
+    pub async fn run(self) -> Result<()> {
+        let Boot { state, identity } = self;
 
-    spawn_telemetry(state.clone());
+        let config = ServerConfig::builder()
+            .with_bind_default(WEBTRANSPORT_PORT)
+            // On wtransport 0.6.x this is `.with_identity(&identity)`.
+            .with_identity(identity)
+            .keep_alive_interval(Some(Duration::from_secs(3)))
+            .build();
 
-    info!(
-        "HTTP on http://127.0.0.1:{HTTP_PORT} — /discovery, /health, /telemetry, \
-         /api/request, /ws"
-    );
+        // A failure here is not fatal, and making it fatal would be the wrong
+        // shape for this server. The whole reason there is a WebSocket
+        // transport is that QUIC is not always available; a host with no IPv6
+        // stack, or with udp/4433 already taken, is the server-side version of
+        // exactly that. Refusing to start would take the fallback down along
+        // with the thing it stands in for.
+        let endpoint = match Endpoint::server(config) {
+            Ok(endpoint) => {
+                state.webtransport_available.store(true, Ordering::Relaxed);
+                info!("WebTransport listening on udp/{WEBTRANSPORT_PORT}");
+                Some(endpoint)
+            }
+            Err(error) => {
+                warn!(
+                    %error,
+                    "could not bind the WebTransport endpoint; serving the WebSocket fallback only"
+                );
+                None
+            }
+        };
 
-    match endpoint {
-        Some(endpoint) => {
-            tokio::select! {
-                result = http::serve(state.clone(), HTTP_PORT) => {
-                    error!("HTTP server stopped: {result:?}");
-                }
-                result = wt::accept_sessions(endpoint, state.clone()) => {
-                    error!("WebTransport server stopped: {result:?}");
+        spawn_telemetry(state.clone());
+
+        info!(
+            "HTTP on http://127.0.0.1:{HTTP_PORT} — /discovery, /health, /telemetry, \
+             /api/request, /ws"
+        );
+
+        match endpoint {
+            Some(endpoint) => {
+                tokio::select! {
+                    result = http::serve(state.clone(), HTTP_PORT) => {
+                        error!("HTTP server stopped: {result:?}");
+                    }
+                    result = wt::accept_sessions(endpoint, state.clone()) => {
+                        error!("WebTransport server stopped: {result:?}");
+                    }
                 }
             }
+            None => {
+                let result = http::serve(state.clone(), HTTP_PORT).await;
+                error!("HTTP server stopped: {result:?}");
+            }
         }
-        None => {
-            let result = http::serve(state.clone(), HTTP_PORT).await;
-            error!("HTTP server stopped: {result:?}");
-        }
-    }
 
-    Ok(())
+        Ok(())
+    }
+}
+
+/// Prepares and runs in one call — what the `wt-server` binary does.
+pub async fn run() -> Result<()> {
+    prepare()?.run().await
 }
 
 /// One telemetry frame per second to every session, on either transport.

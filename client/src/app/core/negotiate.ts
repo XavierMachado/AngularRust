@@ -12,12 +12,16 @@ import type { Discovery, TransportKind } from './protocol';
  * `auto` tries WebTransport and falls back. The explicit choices exist because
  * "the network blocks QUIC" is not the only reason to want the other one: on a
  * network where both work, forcing the fallback is the only way to see it.
+ * `ipc` exists only inside the desktop shell, where the server shares the
+ * process — `auto` keeps it last so the network transports stay the show.
  */
-export type Preference = 'auto' | 'webtransport' | 'websocket';
+export type Preference = 'auto' | 'webtransport' | 'websocket' | 'ipc';
 
 export interface Capabilities {
   webTransport: boolean;
   webSocket: boolean;
+  /** True inside the desktop shell, where Tauri IPC reaches the server. */
+  ipc: boolean;
 }
 
 export interface Plan {
@@ -28,7 +32,10 @@ export interface Plan {
 }
 
 /** In preference order when nothing narrows it. */
-const BEST_FIRST: TransportKind[] = ['webtransport', 'websocket'];
+const BEST_FIRST: TransportKind[] = ['webtransport', 'websocket', 'ipc'];
+
+/** What a server advertises when it predates the transports list. */
+const NETWORK: TransportKind[] = ['webtransport', 'websocket'];
 
 export function plan(
   preference: Preference,
@@ -58,9 +65,15 @@ function unavailable(
   discovery: Discovery,
   capabilities: Capabilities,
 ): string | null {
+  // IPC is not a server offer: the discovery endpoint cannot know whether this
+  // page is inside the desktop shell, so only the capability decides.
+  if (transport === 'ipc') {
+    return capabilities.ipc ? null : 'The in-process channel only exists inside the desktop shell.';
+  }
+
   // An older server may not advertise the list at all; treat a missing one as
   // "offers everything" rather than refusing to connect to it.
-  const offered = discovery.transports?.length ? discovery.transports : BEST_FIRST;
+  const offered = discovery.transports?.length ? discovery.transports : NETWORK;
 
   if (!offered.includes(transport)) {
     return `${label(transport)} is not offered by this server.`;
@@ -78,14 +91,26 @@ function unavailable(
 }
 
 export function label(transport: TransportKind): string {
-  return transport === 'webtransport' ? 'WebTransport' : 'WebSocket';
+  switch (transport) {
+    case 'webtransport':
+      return 'WebTransport';
+    case 'websocket':
+      return 'WebSocket';
+    case 'ipc':
+      return 'Tauri IPC';
+  }
 }
 
 /** How the masthead describes what is carrying the session. */
 export function describeTransport(transport: TransportKind): string {
-  return transport === 'webtransport'
-    ? 'WebTransport · HTTP/3 over QUIC'
-    : 'WebSocket · TCP · fallback';
+  switch (transport) {
+    case 'webtransport':
+      return 'WebTransport · HTTP/3 over QUIC';
+    case 'websocket':
+      return 'WebSocket · TCP · fallback';
+    case 'ipc':
+      return 'Tauri IPC · in-process · no wire';
+  }
 }
 
 /**

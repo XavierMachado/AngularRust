@@ -141,10 +141,14 @@ replace, and one day you may have to.
 
 ### What didn't change at all
 
-The Rust server, the wire protocol, the wasm boundary, the visual design, and 1,721 lines of
-transport core. Both consoles connect to the same server at once and see each other's chat
-messages. The strongest finding of the whole exercise: keeping domain and transport logic
-framework-free is worth more than either framework choice.
+The Rust server, the wire protocol, the wasm boundary, the visual design, and the bulk of the
+transport core (byte-identical between the clients except where the desktop shell's third
+transport touched it — and that arrived as verbatim-shared files too). Both consoles connect to
+the same server at once and see each other's chat messages. The strongest finding of the whole
+exercise: keeping domain and transport logic framework-free is worth more than either framework
+choice. Its sequel is the desktop shell: because sessions are written against a channel-pair
+seam, adding a whole new transport — Tauri IPC, in `desktop/src/ipc.rs` plus one framework-free
+`tauri-link.ts` shared by both clients — changed no session code on either side of the boundary.
 
 ## Reading the result
 

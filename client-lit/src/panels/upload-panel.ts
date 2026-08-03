@@ -41,31 +41,41 @@ export class UploadPanel extends SignalWatcher(LitElement) {
     // differences that matter here — a lane instead of a stream, polled instead
     // of awaited backpressure — arrive together.
     const emulated = transport.datagramsEmulated.get();
+    const ipc = transport.transport.get() === 'ipc';
+    const eyebrow = ipc ? 'Chunked invokes' : emulated ? 'Upload lane' : 'Unidirectional stream';
 
     return html`
       <section class="panel reliable">
         <header>
-          <span class="eyebrow">${emulated ? 'Upload lane' : 'Unidirectional stream'}</span>
+          <span class="eyebrow">${eyebrow}</span>
           <h2>Send bulk</h2>
         </header>
 
         ${
-          emulated
+          ipc
             ? html`
                 <p class="lede">
-                  Writes 16 KiB at a time on the socket's own upload lane — raw bytes, not base64 —
-                  and waits when <code>bufferedAmount</code> says the send buffer is full. That is a
-                  number you poll rather than a promise you await, which is the closest a WebSocket
-                  gets to a stream's flow control. The server reads to the end, times it, and
-                  announces the rate to every session.
+                  Sends 16 KiB per invoke across the IPC boundary — real bytes, awaited one chunk at
+                  a time, and that await is the flow control. The server tallies the bytes, times
+                  it, and announces the rate to every session.
                 </p>
               `
-            : html`
-                <p class="lede">
-                  Writes 16 KiB at a time and waits when the stream's flow control says wait. The
-                  server reads to the end, times it, and announces the rate to every session.
-                </p>
-              `
+            : emulated
+              ? html`
+                  <p class="lede">
+                    Writes 16 KiB at a time on the socket's own upload lane — raw bytes, not base64
+                    — and waits when <code>bufferedAmount</code> says the send buffer is full. That
+                    is a number you poll rather than a promise you await, which is the closest a
+                    WebSocket gets to a stream's flow control. The server reads to the end, times
+                    it, and announces the rate to every session.
+                  </p>
+                `
+              : html`
+                  <p class="lede">
+                    Writes 16 KiB at a time and waits when the stream's flow control says wait. The
+                    server reads to the end, times it, and announces the rate to every session.
+                  </p>
+                `
         }
 
         <div class="row">

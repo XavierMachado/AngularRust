@@ -41,6 +41,9 @@ import { TransportService } from './core/transport.service';
               <option value="auto">Automatic</option>
               <option value="webtransport">WebTransport only</option>
               <option value="websocket">WebSocket only</option>
+              @if (transport.ipcAvailable) {
+                <option value="ipc">In-process only</option>
+              }
             </select>
             <input
               type="text"
@@ -240,6 +243,8 @@ export class App {
         return 'QUIC · HTTP/3 · one connection, two guarantees';
       case 'websocket':
         return 'WebSocket · TCP · one connection, one guarantee';
+      case 'ipc':
+        return 'Tauri IPC · one process, zero wires';
       default:
         return 'QUIC when it gets through, WebSocket when it does not';
     }

@@ -93,6 +93,15 @@ the desktop app uses real WebTransport when udp/4433 is free. WebKitGTK on Linux
 WebTransport, so there the app negotiates its WebSocket fallback and the masthead says so — the
 same downgrade path a Firefox user gets in the browser.
 
+Being in one process also buys the desktop app a third transport the browser cannot have:
+**Tauri IPC**, a `Link` adapter like the other two (`desktop/src/ipc.rs` on the Rust side,
+`core/tauri-link.ts` in both clients), carrying the same protocol with no network at all. Two
+layers the network lanes need simply vanish there — no framing, because nothing is ever bytes on
+a wire, and no correlation ids, because an `invoke` promise is its own correlation. `Automatic`
+keeps IPC last so the network transports stay the show, but it is the lane that still connects
+when tcp/4433 is taken — say, by a second copy of the app — and it can be forced with the
+masthead's "In-process only" option, which only appears inside the shell.
+
 `Cargo.lock` is committed: this workspace builds a binary rather than a library, so pinning the
 resolved dependency versions is what you want.
 

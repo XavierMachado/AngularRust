@@ -156,6 +156,7 @@ pub fn carried_on(kind: TransportKind) -> &'static str {
     match kind {
         TransportKind::WebTransport => "on one stream",
         TransportKind::WebSocket => "on the socket",
+        TransportKind::Ipc => "in the process",
     }
 }
 
@@ -168,6 +169,11 @@ pub fn motd(kind: TransportKind) -> &'static str {
         TransportKind::WebSocket => {
             "One ordered, reliable channel carries every lane. Nothing here is dropped, \
              including the datagrams — they are emulated."
+        }
+        TransportKind::Ipc => {
+            "No wire at all: this session lives in the same process as the server. \
+             Nothing can be lost, and the round trips you measure are the cost of \
+             crossing the webview boundary."
         }
     }
 }

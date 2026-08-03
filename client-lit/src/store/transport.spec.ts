@@ -63,6 +63,7 @@ function net(): Net {
     fetchJson: async <T>() => discovery as T,
     webTransport: null,
     webSocket: FakeSocket as unknown as Net['webSocket'],
+    tauriIpc: null,
   };
 }
 
