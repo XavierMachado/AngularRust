@@ -1,0 +1,7 @@
+{
+  "productName": "WebTransport Console Angular",
+  "identifier": "dev.wtlab.console.angular",
+  "build": {
+    "frontendDist": "../client/dist/console/browser"
+  }
+}

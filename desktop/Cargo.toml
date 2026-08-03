@@ -1,0 +1,26 @@
+# The desktop shell: the wt-server embedded beside a webview showing one of
+# the two consoles. Deliberately NOT a member of the root workspace — building
+# it needs the platform webview toolchain (webkit2gtk on Linux, WebView2 on
+# Windows), and keeping it out means `make check` and plain `cargo build` in
+# the workspace never require any of that.
+[package]
+name = "wt-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "WebTransport console as a self-contained desktop app"
+
+# Opt out of the parent workspace on purpose; see above.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+wt-server = { path = "../backend" }
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true

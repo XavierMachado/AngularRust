@@ -1,0 +1,65 @@
+/*
+ * Two accent colours carry the whole idea: teal for the reliable lane, magenta
+ * for the unreliable one. Every panel, tick and log line is coloured by which
+ * transport it used, so the difference is legible before you read a word.
+ *
+ * The token block is shared with the Angular client verbatim. Control chrome
+ * (buttons, inputs) lives in `panels/shared-styles.ts`, because shadow DOM
+ * components each adopt it rather than inheriting a global rule.
+ */
+
+:root {
+  --paper: #e5eaf0;
+  --surface: #f7f9fb;
+  --ink: #0e1a2b;
+  --ink-2: #4d5e75;
+  --rule: #c2ccd8;
+  --reliable: #00707d;
+  --unreliable: #c4006a;
+  --alert: #9a4a00;
+
+  --font-display: 'Familjen Grotesk', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-data: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 0.95rem/1.55 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--unreliable);
+  outline-offset: 2px;
+}
+
+/* Hide custom elements until their definitions register — the FOUC guard. */
+:not(:defined) {
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

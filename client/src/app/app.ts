@@ -1,27 +1,19 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { describeTransport } from './core/negotiate';
 import { TransportService } from './core/transport.service';
-import { humanBytes } from './core/wasm';
-import { DatagramPanel } from './panels/datagram-panel';
-import { EventLog } from './panels/event-log';
-import { RequestPanel } from './panels/request-panel';
-import { RoomPanel } from './panels/room-panel';
-import { StreamLedger } from './panels/stream-ledger';
-import { UploadPanel } from './panels/upload-panel';
 
+/**
+ * The frame around every page: masthead, connection controls, readout, nav and
+ * the router outlet. Living above the outlet is what keeps Connect and the
+ * status pills on screen wherever the router goes — the connection belongs to
+ * the app, not to a page.
+ */
 @Component({
   selector: 'wt-root',
-  imports: [
-    FormsModule,
-    StreamLedger,
-    RequestPanel,
-    DatagramPanel,
-    RoomPanel,
-    UploadPanel,
-    EventLog,
-  ],
+  imports: [FormsModule, RouterOutlet, RouterLink, RouterLinkActive],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="masthead">
@@ -66,6 +58,14 @@ import { UploadPanel } from './panels/upload-panel';
 
       <p class="detail">{{ transport.detail() }}</p>
 
+      <nav>
+        <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }"
+          >Console</a
+        >
+        <a routerLink="/log" routerLinkActive="active">Log</a>
+        <a routerLink="/about" routerLinkActive="active">About</a>
+      </nav>
+
       <dl class="readout">
         <div>
           <dt>Transport</dt>
@@ -87,56 +87,8 @@ import { UploadPanel } from './panels/upload-panel';
     </header>
 
     <main>
-      <wt-stream-ledger />
-
-      @if (telemetry(); as stats) {
-        <dl class="telemetry">
-          <div>
-            <dt>Sessions</dt>
-            <dd>
-              {{ stats.sessions }}
-              <span class="split"
-                >{{ stats.sessionsWebtransport }} wt / {{ stats.sessionsWebsocket }} ws</span
-              >
-            </dd>
-          </div>
-          <div>
-            <dt>Frames in</dt>
-            <dd>{{ stats.framesIn }}</dd>
-          </div>
-          <div>
-            <dt>Datagrams in</dt>
-            <dd>{{ stats.datagramsIn }}</dd>
-          </div>
-          <div>
-            <dt>Bytes in</dt>
-            <dd>{{ bytes() }}</dd>
-          </div>
-          <div>
-            <dt>Server uptime</dt>
-            <dd>{{ uptime() }}</dd>
-          </div>
-        </dl>
-      }
-
-      <div class="grid">
-        <wt-request-panel />
-        <wt-datagram-panel />
-        <wt-room-panel />
-        <wt-upload-panel />
-      </div>
-
-      <wt-event-log />
+      <router-outlet />
     </main>
-
-    <footer>
-      <p>
-        The certificate is generated fresh on every server start and trusted by fingerprint, which
-        is a development shortcut. In production the server holds a normal CA-issued certificate and
-        the client passes no hashes at all. The WebSocket fallback needs none of it: it rides the
-        same TLS chain the page itself does.
-      </p>
-    </footer>
   `,
   styles: `
     :host {
@@ -205,27 +157,44 @@ import { UploadPanel } from './panels/upload-panel';
       border-style: dashed;
     }
 
-    .split {
-      display: block;
-      margin-top: 2px;
-      font-size: 0.72rem;
-      color: var(--ink-2);
-    }
-
     .detail {
-      margin: 0 0 16px;
+      margin: 0 0 14px;
       color: var(--ink-2);
       font-size: 0.86rem;
     }
 
-    .readout,
-    .telemetry {
-      display: grid;
-      gap: 12px 26px;
-      margin: 0;
+    nav {
+      display: flex;
+      gap: 4px;
+      margin: 0 0 14px;
+    }
+
+    nav a {
+      font: 500 0.74rem/1 var(--font-data);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--ink-2);
+      text-decoration: none;
+      padding: 8px 14px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+    }
+
+    nav a:hover {
+      color: var(--ink);
+      border-color: var(--rule);
+    }
+
+    nav a.active {
+      color: var(--reliable);
+      border-color: color-mix(in srgb, var(--reliable) 45%, transparent);
+      background: color-mix(in srgb, var(--reliable) 9%, var(--surface));
     }
 
     .readout {
+      display: grid;
+      gap: 12px 26px;
+      margin: 0;
       grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
       padding-top: 14px;
       border-top: 1px solid var(--rule);
@@ -233,11 +202,6 @@ import { UploadPanel } from './panels/upload-panel';
 
     .readout .wide {
       grid-column: 1 / -1;
-    }
-
-    .telemetry {
-      grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-      margin: 18px 0 22px;
     }
 
     dt {
@@ -255,44 +219,16 @@ import { UploadPanel } from './panels/upload-panel';
       font-variant-numeric: tabular-nums;
     }
 
-    .telemetry dd {
-      font-size: 1.1rem;
-      font-weight: 500;
-    }
-
     .hash {
       font-size: 0.72rem;
       color: var(--ink-2);
       letter-spacing: 0.02em;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
-      gap: 18px;
-      margin: 22px 0;
-    }
-
-    footer {
-      margin-top: 30px;
-      padding-top: 16px;
-      border-top: 1px solid var(--rule);
-    }
-
-    footer p {
-      margin: 0;
-      max-width: 62ch;
-      font-size: 0.78rem;
-      line-height: 1.6;
-      color: var(--ink-2);
     }
   `,
 })
 export class App {
   protected readonly transport = inject(TransportService);
   protected readonly name = signal(suggestName());
-
-  protected readonly telemetry = computed(() => this.transport.telemetry());
 
   /**
    * The strapline stops asserting QUIC when QUIC is not what is underneath.
@@ -321,24 +257,6 @@ export class App {
     }
 
     return (hex.match(/.{2}/g) ?? []).join(':');
-  });
-
-  // The same formatter the server uses in its upload notices, via wasm.
-  protected readonly bytes = computed(() => {
-    const stats = this.transport.telemetry();
-    return stats ? humanBytes(stats.bytesIn) : '0 B';
-  });
-
-  protected readonly uptime = computed(() => {
-    const stats = this.transport.telemetry();
-    if (!stats) {
-      return '—';
-    }
-
-    const minutes = Math.floor(stats.uptimeSecs / 60);
-    const seconds = stats.uptimeSecs % 60;
-
-    return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
   });
 
   protected connect(): void {

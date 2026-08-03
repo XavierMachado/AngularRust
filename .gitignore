@@ -8,6 +8,13 @@
 /client/coverage/
 /client/out-tsc/
 
+# Lit
+/client-lit/node_modules/
+/client-lit/dist/
+
+# Desktop shell (its own target; the crate opts out of the workspace)
+/desktop/target/
+
 # Editors and OS
 .DS_Store
 Thumbs.db

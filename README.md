@@ -15,11 +15,17 @@ the certificate, framing messages, measuring round trips, and tearing down are a
 UI as they happen.
 
 ```
-client/   Angular 20, standalone components, zoneless, signals
-backend/  Rust, wtransport 0.7, tokio, axum — the wt-server binary
-shared/   Rust that runs on both sides: protocol, framing, lanes, validation, compute
-wasm/     wasm-bindgen bindings over shared/, which the client imports
+client/      Angular 20, standalone components, zoneless, signals, Angular Router
+client-lit/  the same console again: Lit 3, Vaadin Router, Vite, TC39 signals
+desktop/     Tauri shell: either console + the embedded server as one executable
+backend/     Rust, wtransport 0.7, tokio, axum — the wt-server binary
+shared/      Rust that runs on both sides: protocol, framing, lanes, validation, compute
+wasm/        wasm-bindgen bindings over shared/, which both clients import
 ```
+
+There are two frontends on purpose: the same application built twice, once on Angular and once on
+a deliberately small stack, so the two can be compared like for like. The measurements and the
+judgement calls are in [COMPARISON.md](COMPARISON.md).
 
 The Rust side is one Cargo workspace. `shared/` must keep compiling for
 `wasm32-unknown-unknown` — no tokio, no wtransport, no `SystemTime` — because the browser runs it
@@ -32,20 +38,60 @@ Two terminals.
 
 ```bash
 cargo run -p wt-server                  # udp/4433 WebTransport, tcp/4433 discovery
-cd client && npm install && npm start   # http://localhost:4200
+cd client && npm install && npm start   # http://localhost:4200  (Angular)
 ```
 
-Or via the Makefile: `make install`, then `make server` and `make client`.
+The Lit console runs the same way, on its own port, so both can be open at once against the one
+server:
+
+```bash
+cd client-lit && npm install && npm run dev   # http://localhost:5273  (Lit)
+```
+
+Or via the Makefile: `make install`, then `make server` and `make client` (or `make client-lit`).
+
+To serve a built frontend from the Rust server itself, point `STATIC_DIR` at whichever build you
+want: the Angular one is picked up by default from `client/dist/console/browser`, the Lit one with
+`STATIC_DIR=client-lit/dist cargo run -p wt-server`.
 
 Other tasks:
 
 ```bash
-cd client && npm test        # vitest, covers the framing logic
-cd client && npm run format  # prettier
-cargo test --workspace       # framing, validation, compute
+cd client && npm test            # vitest, covers the framing logic
+cd client-lit && npm test        # the same specs, plus a store spec, no harness
+cd client && npm run format      # prettier (same command in client-lit)
+cargo test --workspace           # framing, validation, compute
 cargo clippy --workspace --all-targets
-make check                   # all of the above
+make check                       # all of the above
 ```
+
+## Desktop builds
+
+`desktop/` wraps either console in a [Tauri](https://tauri.app) shell with the whole `wt-server`
+embedded in the process, so the result is one self-contained executable: double-click it and the
+server, the certificate, and the console are all there — nothing else to install or start. Which
+console is baked in is a packaging flag, not a code change; the Rust shell is identical for both.
+
+```bash
+cd client-lit && npm run build          # or: cd client && npm run build
+cd desktop
+npx @tauri-apps/cli build                                        # the Lit console
+npx @tauri-apps/cli build --config tauri.angular.conf.json       # the Angular console
+```
+
+Building needs the platform webview toolchain (on Debian/Ubuntu:
+`libwebkit2gtk-4.1-dev libgtk-3-dev` and friends; nothing extra on Windows). The `desktop/` crate
+deliberately opts out of the Cargo workspace so that `make check` never needs any of that.
+
+Windows executables have to be built on Windows — the
+`.github/workflows/desktop.yml` workflow builds all four artifacts (Lit and Angular, Windows NSIS
+installer and Linux `.deb`/`.AppImage`) on GitHub's runners; trigger it from the Actions tab or by
+pushing a `v*` tag.
+
+One honest platform difference, surfaced by the app itself: WebView2 on Windows is Chromium, so
+the desktop app uses real WebTransport when udp/4433 is free. WebKitGTK on Linux has no
+WebTransport, so there the app negotiates its WebSocket fallback and the masthead says so — the
+same downgrade path a Firefox user gets in the browser.
 
 `Cargo.lock` is committed: this workspace builds a binary rather than a library, so pinning the
 resolved dependency versions is what you want.
@@ -370,8 +416,10 @@ client/
     main.ts             loads the wasm module, then boots Angular
     styles.css          the design tokens live here
     app/
-      app.config.ts               zoneless, plus the global error handler
-      app.ts                      layout, masthead, telemetry strip
+      app.config.ts               zoneless, the router, plus the global error handler
+      app.routes.ts               three routes; /log and /about load lazily
+      app.ts                      the shell: masthead, connection controls, nav, outlet
+      pages/                      console (ledger + panels), log, about
       core/transport.service.ts   the store, and which transport carries it
       core/link.ts                what the console needs from a transport
       core/webtransport-link.ts   a channel per lane
@@ -390,6 +438,18 @@ client/
       core/webtransport.types.ts  browser API typings
       core/error-handler.ts       uncaught browser errors, into the same log
       panels/                     one component per lane, plus the log viewer
+
+client-lit/
+  package.json          four runtime deps: lit, @lit-labs/signals, @vaadin/router, wt-wasm
+  vite.config.ts        port 5273; keeps wt-wasm out of the pre-bundle
+  src/
+    main.ts             loads the wasm module, then the shell
+    router.ts           the same three routes, lazy the same way
+    shell/app-shell.ts  the same shell, as a web component
+    store/transport.ts  the same store, on TC39 signals instead of Angular's
+    store/transport.spec.ts  drives the whole store in plain Node — no harness needed
+    core/               the files above, byte-identical where marked in COMPARISON.md
+    pages/  panels/     the same pages and panels, as web components
 ```
 
 Tests cover `core/`, which runs under plain Node with no Angular or DOM — deliberately where the
