@@ -35,6 +35,8 @@ pub struct AppState {
     /// than merely believed in.
     pub webtransport_sessions: AtomicUsize,
     pub websocket_sessions: AtomicUsize,
+    /// Sessions carried by the desktop shell's in-process channel.
+    pub ipc_sessions: AtomicUsize,
 
     pub bytes_in: AtomicU64,
     pub frames_in: AtomicU64,
@@ -70,6 +72,7 @@ impl AppState {
             sessions: AtomicUsize::new(0),
             webtransport_sessions: AtomicUsize::new(0),
             websocket_sessions: AtomicUsize::new(0),
+            ipc_sessions: AtomicUsize::new(0),
             bytes_in: AtomicU64::new(0),
             frames_in: AtomicU64::new(0),
             datagrams_in: AtomicU64::new(0),
@@ -90,6 +93,7 @@ impl AppState {
             sessions: self.sessions.load(Ordering::Relaxed),
             sessions_webtransport: self.webtransport_sessions.load(Ordering::Relaxed),
             sessions_websocket: self.websocket_sessions.load(Ordering::Relaxed),
+            sessions_ipc: self.ipc_sessions.load(Ordering::Relaxed),
             bytes_in: self.bytes_in.load(Ordering::Relaxed),
             frames_in: self.frames_in.load(Ordering::Relaxed),
             datagrams_in: self.datagrams_in.load(Ordering::Relaxed),
@@ -106,6 +110,7 @@ impl AppState {
         match transport {
             TransportKind::WebTransport => &self.webtransport_sessions,
             TransportKind::WebSocket => &self.websocket_sessions,
+            TransportKind::Ipc => &self.ipc_sessions,
         }
     }
 }

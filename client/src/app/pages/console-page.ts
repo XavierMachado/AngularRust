@@ -23,7 +23,8 @@ import { UploadPanel } from '../panels/upload-panel';
           <dd>
             {{ stats.sessions }}
             <span class="split"
-              >{{ stats.sessionsWebtransport }} wt / {{ stats.sessionsWebsocket }} ws</span
+              >{{ stats.sessionsWebtransport }} wt / {{ stats.sessionsWebsocket }} ws /
+              {{ stats.sessionsIpc }} ipc</span
             >
           </dd>
         </div>

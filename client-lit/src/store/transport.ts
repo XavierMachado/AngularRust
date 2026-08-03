@@ -20,6 +20,7 @@ import type {
   Telemetry,
   TransportKind,
 } from '../core/protocol';
+import { TauriIpcLink } from '../core/tauri-link';
 import { validateSay } from '../core/wasm';
 import { WebSocketLink } from '../core/websocket-link';
 import { WebTransportLink } from '../core/webtransport-link';
@@ -45,6 +46,19 @@ const MAX_RECONNECTS = 5;
  * deadline over and over and take the transport that works.
  */
 const DOWNGRADE_AFTER = 2;
+
+/**
+ * What `plan` sees when discovery is unreachable inside the desktop shell:
+ * nothing on the network side, which leaves only the in-process channel.
+ */
+const OFFLINE_DISCOVERY: Discovery = {
+  url: '',
+  websocketUrl: '',
+  transports: ['ipc'],
+  certHash: [],
+  certHashHex: '',
+  maxCertificateDays: 0,
+};
 
 export type LinkState = 'offline' | 'connecting' | 'online' | 'closing' | 'failed';
 
@@ -179,10 +193,15 @@ export class TransportStore {
   private announcedDowngrade = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Whether the in-process channel exists here — i.e. is this the desktop shell. */
+  readonly ipcAvailable: boolean;
+
   constructor(
     private readonly net: Net,
     private readonly discoveryUrl: string,
-  ) {}
+  ) {
+    this.ipcAvailable = net.tauriIpc !== null;
+  }
 
   async connect(author: string): Promise<void> {
     if (this.state.get() === 'connecting' || this.state.get() === 'online') {
@@ -286,17 +305,31 @@ export class TransportStore {
         DISCOVERY_TIMEOUT_MS,
         `${this.discoveryUrl} did not answer in time`,
       );
+      this.fingerprint.set(discovery.certHashHex);
     } catch {
-      this.fail(`No answer from ${this.discoveryUrl}. Start the server with cargo run.`);
-      this.scheduleRetry();
-      return;
-    }
+      // Inside the desktop shell the in-process channel does not need
+      // discovery at all — the server that would have answered shares this
+      // process. Everywhere else, an unreachable discovery is the end.
+      const preference = this.preference.get();
 
-    this.fingerprint.set(discovery.certHashHex);
+      if (this.net.tauriIpc && (preference === 'auto' || preference === 'ipc')) {
+        this.write(
+          'link',
+          `No answer from ${this.discoveryUrl}; using the in-process channel.`,
+          'warn',
+        );
+        discovery = OFFLINE_DISCOVERY;
+      } else {
+        this.fail(`No answer from ${this.discoveryUrl}. Start the server with cargo run.`);
+        this.scheduleRetry();
+        return;
+      }
+    }
 
     const { attempt, excluded } = plan(this.effectivePreference(), discovery, {
       webTransport: this.net.webTransport !== null,
       webSocket: this.net.webSocket !== null,
+      ipc: this.net.tauriIpc !== null,
     });
 
     for (const reason of excluded) {
@@ -310,7 +343,11 @@ export class TransportStore {
 
     for (const kind of attempt) {
       const link =
-        kind === 'webtransport' ? new WebTransportLink(this.net) : new WebSocketLink(this.net);
+        kind === 'webtransport'
+          ? new WebTransportLink(this.net)
+          : kind === 'websocket'
+            ? new WebSocketLink(this.net)
+            : new TauriIpcLink(this.net);
 
       this.detail.set(`Opening a ${label(kind)} session`);
 

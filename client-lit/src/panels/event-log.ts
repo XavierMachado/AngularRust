@@ -274,8 +274,8 @@ export class EventLog extends SignalWatcher(LitElement) {
                         ${line.text}
                         ${line.session ? html`<span class="chip">${line.session}</span>` : ''}
                         ${fieldsOf(line).map(
-                        ([name, value]) => html`<span class="field">${name}=${value}</span>`,
-                      )}
+                          ([name, value]) => html`<span class="field">${name}=${value}</span>`,
+                        )}
                       </span>
                     </li>
                   `,
@@ -283,11 +283,11 @@ export class EventLog extends SignalWatcher(LitElement) {
               : html`
                   <li class="empty">
                     ${
-                    total
-                      ? html`Nothing matches this filter. ${total} lines are hidden.`
-                      : html`Connect to start the log. The server replays its recent history on the
-                        way in.`
-                  }
+                      total
+                        ? html`Nothing matches this filter. ${total} lines are hidden.`
+                        : html`Connect to start the log. The server replays its recent history on
+                          the way in.`
+                    }
                   </li>
                 `
           }

@@ -23,7 +23,13 @@ import { TransportService } from '../core/transport.service';
         }
       </header>
 
-      @if (emulated()) {
+      @if (ipc()) {
+        <p class="lede">
+          There is no network under this lane at all: ping and pong cross the webview boundary and
+          come straight back. Nothing can be lost, so Unanswered stays at zero by construction —
+          what the chart measures is the round-trip cost of IPC serialization.
+        </p>
+      } @else if (emulated()) {
         <p class="lede">
           This connection has no datagram channel. Ping and pong here ride the same ordered,
           reliable socket as everything else: nothing will be lost, nothing reordered, and
@@ -176,6 +182,9 @@ export class DatagramPanel implements OnDestroy {
 
   /** True when the live transport has no datagram channel and is faking one. */
   protected readonly emulated = this.transport.datagramsEmulated;
+
+  /** The in-process channel deserves its own account of what "emulated" means. */
+  protected readonly ipc = computed(() => this.transport.transport() === 'ipc');
 
   protected readonly ceiling = computed(() => {
     const samples = this.transport.rtt();

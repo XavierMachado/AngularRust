@@ -136,6 +136,7 @@ export class DatagramPanel extends SignalWatcher(LitElement) {
 
   override render() {
     const emulated = transport.datagramsEmulated.get();
+    const ipc = transport.transport.get() === 'ipc';
     const path = this.path();
 
     return html`
@@ -147,21 +148,31 @@ export class DatagramPanel extends SignalWatcher(LitElement) {
         </header>
 
         ${
-          emulated
+          ipc
             ? html`
                 <p class="lede">
-                  This connection has no datagram channel. Ping and pong here ride the same ordered,
-                  reliable socket as everything else: nothing will be lost, nothing reordered, and
-                  Unanswered should stay at zero. What the chart measures is queueing delay behind
-                  whatever else is on the socket — a real number, about a different thing.
+                  There is no network under this lane at all: ping and pong cross the webview
+                  boundary and come straight back. Nothing can be lost, so Unanswered stays at zero
+                  by construction — what the chart measures is the round-trip cost of IPC
+                  serialization.
                 </p>
               `
-            : html`
-                <p class="lede">
-                  Datagrams skip retransmission and ordering entirely. A missing pong is the
-                  transport working as designed, not a bug.
-                </p>
-              `
+            : emulated
+              ? html`
+                  <p class="lede">
+                    This connection has no datagram channel. Ping and pong here ride the same
+                    ordered, reliable socket as everything else: nothing will be lost, nothing
+                    reordered, and Unanswered should stay at zero. What the chart measures is
+                    queueing delay behind whatever else is on the socket — a real number, about a
+                    different thing.
+                  </p>
+                `
+              : html`
+                  <p class="lede">
+                    Datagrams skip retransmission and ordering entirely. A missing pong is the
+                    transport working as designed, not a bug.
+                  </p>
+                `
         }
 
         <div class="row">

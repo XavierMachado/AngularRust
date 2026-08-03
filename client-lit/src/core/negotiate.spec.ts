@@ -16,7 +16,8 @@ const discovery: Discovery = {
   maxCertificateDays: 14,
 };
 
-const both = { webTransport: true, webSocket: true };
+const both = { webTransport: true, webSocket: true, ipc: false };
+const desktop = { ...both, ipc: true };
 
 describe('transport negotiation', () => {
   it('prefers WebTransport and keeps the WebSocket in reserve', () => {
@@ -34,17 +35,21 @@ describe('transport negotiation', () => {
     const { attempt, excluded } = plan('auto', discovery, {
       webTransport: false,
       webSocket: true,
+      ipc: false,
     });
 
     expect(attempt).toEqual(['websocket']);
-    expect(excluded).toHaveLength(1);
+    // Two exclusions: no WebTransport in this browser, no shell around it.
+    expect(excluded).toHaveLength(2);
     expect(excluded[0]).toContain('WebTransport');
+    expect(excluded[1]).toContain('desktop shell');
   });
 
   it('leaves nothing to try when the only choice is unavailable', () => {
     const { attempt, excluded } = plan('webtransport', discovery, {
       webTransport: false,
       webSocket: true,
+      ipc: false,
     });
 
     expect(attempt).toEqual([]);
@@ -69,6 +74,26 @@ describe('transport negotiation', () => {
     const silent = { ...discovery, transports: [] };
 
     expect(plan('auto', silent, both).attempt).toEqual(['webtransport', 'websocket']);
+  });
+
+  it('keeps the in-process channel last, so the network stays the show', () => {
+    expect(plan('auto', discovery, desktop).attempt).toEqual(['webtransport', 'websocket', 'ipc']);
+  });
+
+  it('refuses the in-process channel outside the desktop shell, and says why', () => {
+    const { attempt, excluded } = plan('ipc', discovery, both);
+
+    expect(attempt).toEqual([]);
+    expect(excluded).toHaveLength(1);
+    expect(excluded[0]).toContain('desktop shell');
+  });
+
+  it('offers the in-process channel regardless of what the server advertises', () => {
+    // Discovery cannot know whether this page is inside the desktop shell, so
+    // its transports list has no say over ipc — even an empty one.
+    const silent = { ...discovery, transports: [] };
+
+    expect(plan('ipc', silent, desktop).attempt).toEqual(['ipc']);
   });
 });
 
