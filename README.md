@@ -102,6 +102,21 @@ keeps IPC last so the network transports stay the show, but it is the lane that 
 when tcp/4433 is taken — say, by a second copy of the app — and it can be forced with the
 masthead's "In-process only" option, which only appears inside the shell.
 
+### The CEF preview
+
+The missing piece on Linux is WebTransport itself, and the fix for that is underway upstream:
+Tauri's `feat/cef` branch (with [tauri-apps/cef-rs](https://github.com/tauri-apps/cef-rs))
+replaces the system webview with Chromium, WebTransport included. `desktop/cef/` is this app on
+that runtime — the same embedded server and literally the same IPC adapter, with a two-line
+runtime swap (`Builder::<tauri::Cef>` plus the `cef_entry_point` attribute that keeps CEF's
+renderer subprocesses from booting a second server). It is pinned to an exact branch revision
+and kept out of the release workflow on purpose: the branch is unreleased and moving, CEF adds
+roughly 170 MB to a bundle, and the stable shell's WebSocket-plus-IPC story on Linux is already
+verified end to end. Build it from the Actions tab (`desktop-cef` workflow) or locally with the
+branch's CLI — the first build downloads about a gigabyte of CEF binaries, which is also why it
+cannot build inside network-restricted sandboxes. When `feat/cef` ships in a Tauri release, the
+intent is for `desktop/cef/` to fold into `desktop/` as a cargo feature.
+
 `Cargo.lock` is committed: this workspace builds a binary rather than a library, so pinning the
 resolved dependency versions is what you want.
 
