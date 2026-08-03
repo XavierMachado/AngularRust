@@ -17,6 +17,14 @@ doctest = false
 name = "wt-server"
 path = "src/main.rs"
 
+# Off by default: the hypermedia console is one of the three clients, not part
+# of the server, so `cargo run -p wt-server` serves the transport lab and
+# nothing else. Turning it on compiles `client-datastar/server.rs` in and
+# mounts `/ds`. See that file, and `make datastar`.
+[features]
+default = []
+datastar = []
+
 [dependencies]
 # Protocol types, framing codec, validation — the code the browser also runs.
 wt-shared = { path = "../shared" }

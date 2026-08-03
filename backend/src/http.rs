@@ -42,6 +42,8 @@ use wt_shared::protocol::ServerPush;
 use wt_shared::protocol::TransportKind;
 
 use crate::app;
+#[cfg(feature = "datastar")]
+use crate::datastar;
 use crate::state::AppState;
 use crate::ws;
 
@@ -76,12 +78,34 @@ struct Discovery {
 /// The router, separated from the listener so tests can serve it on a port the
 /// operating system picks.
 pub fn router(state: Arc<AppState>) -> Router {
-    let mut router = Router::new()
+    let router = Router::new()
         .route("/discovery", get(discovery))
         .route("/health", get(health))
         .route("/telemetry", get(telemetry))
         .route("/api/request", post(api_request))
-        .route("/ws", get(ws::upgrade))
+        .route("/ws", get(ws::upgrade));
+
+    // The hypermedia console, when it was asked for: one page, one SSE
+    // stream, two POSTs. Its handlers live in `client-datastar/server.rs`,
+    // because they belong to that client rather than to this server; without
+    // the feature there is no `/ds` and none of it is compiled in.
+    #[cfg(feature = "datastar")]
+    let router = {
+        info!(
+            "hypermedia console at /ds, from {}",
+            datastar::page_dir().display()
+        );
+
+        router
+            .route("/ds", get(datastar::index))
+            .route("/ds/datastar.js", get(datastar::runtime))
+            .route("/ds/styles.css", get(datastar::styles))
+            .route("/ds/stream", get(datastar::stream))
+            .route("/ds/request", post(datastar::request))
+            .route("/ds/say", post(datastar::say))
+    };
+
+    let mut router = router
         .with_state(state)
         // The Angular dev server is a different origin. Development only, and
         // note it does not apply to the WebSocket upgrade above.
