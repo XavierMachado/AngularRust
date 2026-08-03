@@ -15,11 +15,16 @@ the certificate, framing messages, measuring round trips, and tearing down are a
 UI as they happen.
 
 ```
-client/   Angular 20, standalone components, zoneless, signals
-backend/  Rust, wtransport 0.7, tokio, axum — the wt-server binary
-shared/   Rust that runs on both sides: protocol, framing, lanes, validation, compute
-wasm/     wasm-bindgen bindings over shared/, which the client imports
+client/      Angular 20, standalone components, zoneless, signals
+client-lit/  the same console again: Lit 3, Shoelace, Vaadin Router, Vite, TC39 signals
+backend/     Rust, wtransport 0.7, tokio, axum — the wt-server binary
+shared/      Rust that runs on both sides: protocol, framing, lanes, validation, compute
+wasm/        wasm-bindgen bindings over shared/, which both clients import
 ```
+
+There are two frontends on purpose: the same application built twice, once on Angular and once on
+a deliberately small stack, so the two can be compared like for like. The measurements and the
+judgement calls are in [COMPARISON.md](COMPARISON.md).
 
 The Rust side is one Cargo workspace. `shared/` must keep compiling for
 `wasm32-unknown-unknown` — no tokio, no wtransport, no `SystemTime` — because the browser runs it
@@ -32,19 +37,31 @@ Two terminals.
 
 ```bash
 cargo run -p wt-server                  # udp/4433 WebTransport, tcp/4433 discovery
-cd client && npm install && npm start   # http://localhost:4200
+cd client && npm install && npm start   # http://localhost:4200  (Angular)
 ```
 
-Or via the Makefile: `make install`, then `make server` and `make client`.
+The Lit console runs the same way, on its own port, so both can be open at once against the one
+server:
+
+```bash
+cd client-lit && npm install && npm run dev   # http://localhost:5273  (Lit)
+```
+
+Or via the Makefile: `make install`, then `make server` and `make client` (or `make client-lit`).
+
+To serve a built frontend from the Rust server itself, point `STATIC_DIR` at whichever build you
+want: the Angular one is picked up by default from `client/dist/console/browser`, the Lit one with
+`STATIC_DIR=client-lit/dist cargo run -p wt-server`.
 
 Other tasks:
 
 ```bash
-cd client && npm test        # vitest, covers the framing logic
-cd client && npm run format  # prettier
-cargo test --workspace       # framing, validation, compute
+cd client && npm test            # vitest, covers the framing logic
+cd client-lit && npm test        # the same specs, plus a store spec, no harness
+cd client && npm run format      # prettier (same command in client-lit)
+cargo test --workspace           # framing, validation, compute
 cargo clippy --workspace --all-targets
-make check                   # all of the above
+make check                       # all of the above
 ```
 
 `Cargo.lock` is committed: this workspace builds a binary rather than a library, so pinning the

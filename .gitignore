@@ -8,6 +8,10 @@
 /client/coverage/
 /client/out-tsc/
 
+# Lit
+/client-lit/node_modules/
+/client-lit/dist/
+
 # Editors and OS
 .DS_Store
 Thumbs.db

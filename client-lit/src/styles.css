@@ -1,0 +1,96 @@
+/*
+ * Two accent colours carry the whole idea: teal for the reliable lane, magenta
+ * for the unreliable one. Every panel, tick and log line is coloured by which
+ * transport it used, so the difference is legible before you read a word.
+ *
+ * The token block is shared with the Angular client verbatim; below it the
+ * same palette is mapped onto Shoelace's theme tokens so sl-* controls match.
+ */
+
+:root {
+  --paper: #e5eaf0;
+  --surface: #f7f9fb;
+  --ink: #0e1a2b;
+  --ink-2: #4d5e75;
+  --rule: #c2ccd8;
+  --reliable: #00707d;
+  --unreliable: #c4006a;
+  --alert: #9a4a00;
+
+  --font-display: 'Familjen Grotesk', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-data: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  color-scheme: light;
+}
+
+/* Shoelace theme mapping -------------------------------------------------- */
+
+:root {
+  --sl-color-primary-500: color-mix(in srgb, var(--reliable) 80%, white);
+  --sl-color-primary-600: var(--reliable);
+  --sl-color-primary-700: color-mix(in srgb, var(--reliable) 80%, black);
+  --sl-color-danger-500: color-mix(in srgb, var(--unreliable) 80%, white);
+  --sl-color-danger-600: var(--unreliable);
+  --sl-color-danger-700: color-mix(in srgb, var(--unreliable) 80%, black);
+  --sl-color-warning-600: var(--alert);
+  --sl-color-neutral-0: var(--surface);
+  --sl-color-neutral-50: var(--paper);
+  --sl-color-neutral-200: var(--rule);
+  --sl-color-neutral-300: var(--rule);
+  --sl-color-neutral-500: var(--ink-2);
+  --sl-color-neutral-700: var(--ink);
+  --sl-color-neutral-900: var(--ink);
+  --sl-color-neutral-1000: var(--ink);
+  --sl-font-sans: var(--font-body);
+  --sl-font-mono: var(--font-data);
+  --sl-input-font-family: var(--font-data);
+  --sl-input-color: var(--ink);
+  --sl-input-border-color: var(--rule);
+  --sl-input-background-color: #fff;
+  --sl-input-border-radius-medium: 8px;
+  --sl-input-height-medium: 2.4rem;
+  --sl-input-font-size-medium: 0.85rem;
+  --sl-border-radius-medium: 8px;
+  --sl-focus-ring-color: var(--unreliable);
+  --sl-focus-ring-width: 2px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 0.95rem/1.55 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--unreliable);
+  outline-offset: 2px;
+}
+
+/* Hide custom elements until their definitions register — the FOUC guard. */
+:not(:defined) {
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
