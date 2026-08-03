@@ -74,10 +74,23 @@ A different port on purpose, so both SPAs can be open at once against the one se
 
 ### The hypermedia console — `http://127.0.0.1:4433/ds`
 
-Nothing to start and nothing to install: the running server renders it. One Datastar page,
-patched live by `backend/src/datastar.rs` over a single SSE stream. Its files are in
-`client-datastar/` (override with `DATASTAR_DIR`), and there is no build step — edit
-`index.html` or `styles.css` and reload. `make client-datastar` just prints this.
+Off by default, because it is a client and you should not have to serve it to work on the other
+two. Ask for it and the same server renders it:
+
+```bash
+make server-datastar    # or: cargo run -p wt-server --features datastar
+```
+
+There is nothing else to start and nothing to install. Its files are all in `client-datastar/`
+(override the directory with `DATASTAR_DIR`), and there is no build step — edit `index.html` or
+`styles.css` and reload.
+
+One of those files is `server.rs`, which is worth explaining rather than hiding: a hypermedia
+client has a half that runs on the server. That is the paradigm — the server renders the HTML,
+which is the whole point of comparing it against two SPAs that render their own. So the file
+lives with the client it belongs to, and `backend/src/lib.rs` includes it by path behind the
+`datastar` feature. With the feature off it is not compiled, `/ds` does not exist, and the
+server is the transport lab and nothing else.
 
 ### One process, the way it ships
 
@@ -111,7 +124,7 @@ make test-server        # cargo test --workspace: framing, validation, compute,
 make test-client        # vitest in client/      — 42 specs
 make test-client-lit    # vitest in client-lit/  — 47 specs
 make test-datastar      # smoke-tests /ds, /ds/datastar.js and /ds/stream
-                        # (needs 'make server' running in another terminal)
+                        # (needs 'make server-datastar' running in another terminal)
 ```
 
 The vitest suites run under plain Node with no DOM and no test harness, against the real
@@ -508,8 +521,8 @@ backend/            the wt-server binary
     link.rs       the seam: a channel in, a channel out, and a label
     wt.rs         the WebTransport adapter: QUIC channels into the seam
     ws.rs         the WebSocket adapter: one channel, four lanes, into the same seam
-    datastar.rs   the hypermedia console: SSE out, form posts in, HTML rendered here
-    http.rs       discovery, /health, /telemetry, /api/request, /ws, /ds, static serving
+    http.rs       discovery, /health, /telemetry, /api/request, /ws, static serving,
+                  and /ds when the datastar feature is on
     logging.rs    tracing layer that forwards log events to connected browsers
     framing.rs    the QUIC-stream adapters over the shared codec
     state.rs      counters, per-transport tallies, and the broadcast bus
@@ -575,6 +588,8 @@ client-datastar/      no package.json, no build, no application JavaScript
   index.html          the whole console as data-* attributes
   styles.css          the same design tokens, as one plain global stylesheet
   datastar.js         the vendored 40 kB runtime, served at /ds/datastar.js
+  server.rs           this client's server half — the paradigm puts it there, so it
+                      lives here and wt-server includes it under the datastar feature
 
 desktop/              the console and the server as one executable
   src/main.rs         boots the embedded server, then the webview
@@ -595,6 +610,6 @@ Component tests need a DOM and Angular's test harness; add the `@angular/build:u
 browser with a QUIC stack, so it is the one path still verified by hand.
 
 The hypermedia console has no suite of its own by design: everything it does happens in
-`backend/src/datastar.rs`, which `make test-server` covers along with the rest of the server.
-What is worth checking separately is only that its routes answer, which is what
-`make test-datastar` does against a running server.
+`client-datastar/server.rs`, which `make check-server` compiles and lints along with the rest of
+the server. What is worth checking separately is only that its routes answer, which is what
+`make test-datastar` does against a server started with `make server-datastar`.

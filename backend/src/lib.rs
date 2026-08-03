@@ -43,7 +43,6 @@
 pub mod app;
 pub mod boot;
 pub mod clock;
-pub mod datastar;
 pub mod framing;
 pub mod http;
 pub mod link;
@@ -51,4 +50,16 @@ pub mod logging;
 pub mod session;
 pub mod state;
 pub mod ws;
+
+/// The hypermedia console's server half, off unless the `datastar` feature is
+/// on.
+///
+/// It lives in `client-datastar/` beside that client's HTML, because it is
+/// part of the client rather than of this server — a hypermedia client just
+/// has a half that runs here. Optional for the same reason: without the
+/// feature, `wt-server` is the transport lab and nothing else, and someone
+/// working on the Lit console never serves a page they did not ask for.
+#[cfg(feature = "datastar")]
+#[path = "../../client-datastar/server.rs"]
+pub mod datastar;
 pub mod wt;

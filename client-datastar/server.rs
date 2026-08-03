@@ -1,4 +1,12 @@
-//! The hypermedia console: `client-datastar/` rendered live by this server.
+//! The server half of the hypermedia console.
+//!
+//! This file sits beside `index.html` rather than under `backend/src/` on
+//! purpose: it is part of *this client*, not of the server. A hypermedia
+//! client simply has a half that runs on the server — that is the paradigm,
+//! not an accident of layout — so `backend/src/lib.rs` pulls it in by path,
+//! behind the `datastar` feature, and compiles it into `wt-server`. With the
+//! feature off, none of this exists and the server is the transport lab and
+//! nothing else.
 //!
 //! The other clients hold a transport in the browser and reduce pushes into
 //! their own stores. This one inverts that: the server renders HTML fragments
@@ -44,7 +52,7 @@ use crate::state::AppState;
 /// Where the page's files live, relative to the working directory unless
 /// `DATASTAR_DIR` says otherwise. Served from disk on purpose: edit, reload,
 /// done — the stack's whole pitch is that there is no build step.
-fn page_dir() -> std::path::PathBuf {
+pub fn page_dir() -> std::path::PathBuf {
     std::env::var("DATASTAR_DIR")
         .unwrap_or_else(|_| "client-datastar".to_owned())
         .into()

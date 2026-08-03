@@ -171,10 +171,15 @@ seam, adding a whole new transport — Tauri IPC, in `desktop/src/ipc.rs` plus o
 `client-datastar/` answers a different question than the other two clients: not "which
 framework", but "why have a frontend stack at all". It is the console rebuilt as
 [Datastar](https://data-star.dev) hypermedia — one HTML page of `data-*` attributes, one
-stylesheet, a vendored 40 kB runtime, and a Rust module (`backend/src/datastar.rs`, no new
+stylesheet, a vendored 40 kB runtime, and a Rust file (`client-datastar/server.rs`, no new
 crates) that renders every update server-side and streams it down one SSE connection. The same
 broadcast buses the sessions push through drive it, so chat fans out between this page and the
 SPAs both ways — verified in a real browser.
+
+That Rust file is the honest cost of the paradigm, and it is why the whole client is optional:
+`wt-server` compiles it in only under a `datastar` feature, so the transport lab does not carry
+a UI it was not asked for. A hypermedia client cannot be browser files alone — if it could, it
+would be an SPA.
 
 | Metric | Angular | Lit stack | Datastar |
 | --- | ---: | ---: | ---: |
@@ -182,7 +187,7 @@ SPAs both ways — verified in a real browser.
 | npm packages installed | 445 | 69 | **0** |
 | Build step | Angular CLI | Vite + tsc | **none** |
 | Client-side code (lines) | 3,972 | 4,247 | 192 html + 471 css |
-| Server-side UI code (lines) | 0 | 0 | 389 (Rust) |
+| Server-side UI code (lines) | 0 | 0 | 397 (Rust) |
 
 The trade is architectural, not incremental. The hypermedia page holds no transport in the
 browser: no WebTransport, no WebSocket link, no datagrams, no upload lane, no offline wasm — the

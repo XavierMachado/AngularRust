@@ -3,7 +3,7 @@
 # Angular, Lit, hypermedia, desktop — can be run, tested and built on its own,
 # without going through the whole suite to exercise one of them.
 .PHONY: help install \
-        server serve-angular serve-lit \
+        server server-datastar serve-angular serve-lit \
         client client-lit client-datastar \
         desktop desktop-angular desktop-dev desktop-cef \
         test test-server test-client test-client-lit test-datastar \
@@ -20,7 +20,8 @@ help:
 	@echo "  make server           the Rust server (udp/4433 + tcp/4433). Needed by everything"
 	@echo "  make client           the Angular dev server      http://localhost:4200"
 	@echo "  make client-lit       the Lit dev server          http://localhost:5273"
-	@echo "  make client-datastar  where the hypermedia page lives (the server serves it)"
+	@echo "  make server-datastar  the server WITH the hypermedia console at /ds"
+	@echo "  make client-datastar  what that is and where its files live"
 	@echo
 	@echo "Run the production shape — one process serves the built app and the API"
 	@echo "  make serve-angular    build the Angular client, then serve it from the server"
@@ -36,7 +37,7 @@ help:
 	@echo "  make test-server      cargo test: framing, validation, compute, the WS end to end"
 	@echo "  make test-client      vitest in client/       (42 specs)"
 	@echo "  make test-client-lit  vitest in client-lit/    (47 specs)"
-	@echo "  make test-datastar    smoke-test the hypermedia routes (needs make server running)"
+	@echo "  make test-datastar    smoke-test /ds (needs make server-datastar running)"
 	@echo "  make test             all of the above except test-datastar"
 	@echo
 	@echo "Lint, typecheck and build"
@@ -73,15 +74,23 @@ client:
 client-lit:
 	cd client-lit && npm run dev
 
-# There is nothing to start: the server renders this one. The target exists so
-# `make help` can list all three clients in one place and say where it lives.
+# The hypermedia console is a client, so it is off unless asked for: this is
+# the server with `client-datastar/server.rs` compiled in and /ds mounted.
+server-datastar:
+	cargo run -p wt-server --features datastar
+
+# There is no dev server to start for this one — the Rust server renders it.
+# The target exists so `make help` can list all three clients together.
 client-datastar:
-	@echo "The hypermedia console needs no dev server — the running wt-server serves it:"
+	@echo "The hypermedia console has no dev server of its own: it is rendered by"
+	@echo "wt-server, which mounts it only when asked."
 	@echo
-	@echo "    http://127.0.0.1:4433/ds"
+	@echo "    make server-datastar     then open http://127.0.0.1:4433/ds"
 	@echo
-	@echo "Its files are in client-datastar/ (override with DATASTAR_DIR). There is no"
-	@echo "build step: edit index.html or styles.css and reload the page."
+	@echo "Its files are all in client-datastar/ — index.html, styles.css, the"
+	@echo "vendored runtime, and server.rs, which is the half of this client that"
+	@echo "the paradigm puts on the server. Override the directory with"
+	@echo "DATASTAR_DIR. There is no build step: edit and reload."
 
 # The production shape: one process, the built app and the API on one port.
 serve-angular: build-client
@@ -124,14 +133,18 @@ test-client-lit:
 # The hypermedia page has no unit tests of its own — its logic is the server's,
 # covered by test-server. What is worth checking is that the three routes it
 # needs answer, so this is a smoke test against a running server.
+#
+# Each check looks at what came back, not just the status: with the feature off
+# these paths still answer 200, because the built SPA's deep-link fallback
+# answers everything. Only the content tells the two apart.
 test-datastar:
 	@echo "Checking the hypermedia routes on http://127.0.0.1:4433 …"
-	@curl -sf -o /dev/null http://127.0.0.1:4433/ds \
+	@curl -sf http://127.0.0.1:4433/ds | grep -q "data-signals" \
 		&& echo "  /ds             the page          ok" \
-		|| { echo "  /ds             FAILED — is 'make server' running?"; exit 1; }
-	@curl -sf -o /dev/null http://127.0.0.1:4433/ds/datastar.js \
+		|| { echo "  /ds             FAILED — is 'make server-datastar' running?"; exit 1; }
+	@curl -sf http://127.0.0.1:4433/ds/datastar.js | grep -q "Datastar" \
 		&& echo "  /ds/datastar.js the runtime       ok" \
-		|| { echo "  /ds/datastar.js FAILED"; exit 1; }
+		|| { echo "  /ds/datastar.js FAILED — not the vendored runtime"; exit 1; }
 	@curl -sf -N --max-time 2 http://127.0.0.1:4433/ds/stream | grep -q "datastar-merge-signals" \
 		&& echo "  /ds/stream      the SSE stream    ok" \
 		|| { echo "  /ds/stream      FAILED — no signals patch on the stream"; exit 1; }
@@ -152,6 +165,9 @@ check: check-server check-client check-client-lit
 
 check-server:
 	cargo clippy --workspace --all-targets -- -D warnings
+	# The hypermedia client's server half is optional, so it needs checking
+	# on purpose — nothing else in the workspace turns the feature on.
+	cargo clippy -p wt-server --all-targets --features datastar -- -D warnings
 	cargo test --workspace
 	cargo fmt --all --check
 	# The guard rail: shared/ must keep compiling for the browser. This is
