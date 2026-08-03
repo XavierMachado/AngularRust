@@ -15,18 +15,19 @@ the certificate, framing messages, measuring round trips, and tearing down are a
 UI as they happen.
 
 ```
-client/          Angular 20, standalone components, zoneless, signals, Angular Router
-client-lit/      the same console again: Lit 3, Vaadin Router, Vite, TC39 signals
-client-datastar/ the hypermedia rendition: one page, no build, the server renders it live
-desktop/         Tauri shell: either console + the embedded server as one executable
-backend/     Rust, wtransport 0.7, tokio, axum — the wt-server binary
-shared/      Rust that runs on both sides: protocol, framing, lanes, validation, compute
-wasm/        wasm-bindgen bindings over shared/, which both clients import
+client/           Angular 20, standalone components, zoneless, signals, Angular Router
+client-lit/       the same console again: Lit 3, Vaadin Router, Vite, TC39 signals
+client-datastar/  the hypermedia rendition: one page, no build, the server renders it live
+desktop/          Tauri shell: either console + the embedded server as one executable
+backend/          Rust, wtransport 0.7, tokio, axum — the wt-server binary
+shared/           Rust that runs on both sides: protocol, framing, lanes, validation, compute
+wasm/             wasm-bindgen bindings over shared/, which both clients import
 ```
 
-There are two frontends on purpose: the same application built twice, once on Angular and once on
-a deliberately small stack, so the two can be compared like for like. The measurements and the
-judgement calls are in [COMPARISON.md](COMPARISON.md).
+There are three frontends on purpose: the same application built three times — on Angular, on a
+deliberately small Lit stack, and as server-rendered hypermedia — so they can be compared like
+for like. All three talk to the one server, and a line said in any of them arrives in the other
+two. The measurements and the judgement calls are in [COMPARISON.md](COMPARISON.md).
 
 The Rust side is one Cargo workspace. `shared/` must keep compiling for
 `wasm32-unknown-unknown` — no tokio, no wtransport, no `SystemTime` — because the browser runs it
@@ -35,40 +36,99 @@ client needs only Node; after changing `shared/` or `wasm/`, run `make wasm` and
 
 ## Running it
 
-Two terminals.
+From a fresh clone, two terminals:
 
 ```bash
-cargo run -p wt-server                  # udp/4433 WebTransport, tcp/4433 discovery
-cd client && npm install && npm start   # http://localhost:4200  (Angular)
+make install       # once: npm install in client/ and client-lit/
+make server        # terminal one
+make client-lit    # terminal two — or 'make client' for the Angular one
 ```
 
-The Lit console runs the same way, on its own port, so both can be open at once against the one
-server:
+Every rendition also runs on its own, and each has a Makefile target beside the plain command it
+stands for; `make help` prints the whole index. The hypermedia console needs no install and no
+terminal of its own at all.
+
+### The server, which everything else needs
 
 ```bash
-cd client-lit && npm install && npm run dev   # http://localhost:5273  (Lit)
+make server        # or: cargo run -p wt-server
 ```
 
-Or via the Makefile: `make install`, then `make server` and `make client` (or `make client-lit`).
+`udp/4433` carries WebTransport, `tcp/4433` carries discovery, the JSON API, the WebSocket
+fallback and the hypermedia page. Leave it running in its own terminal; if QUIC cannot bind it
+says so and serves the fallback anyway.
 
-The hypermedia console needs no third terminal and no install at all: the server itself serves
-it at **http://127.0.0.1:4433/ds** — one Datastar-powered page, rendered and patched live by
-`backend/src/datastar.rs` over a single SSE stream. Its files live in `client-datastar/`
-(override with `DATASTAR_DIR`); edit and reload, there is no build step.
+### The Angular console — `http://localhost:4200`
 
-To serve a built frontend from the Rust server itself, point `STATIC_DIR` at whichever build you
-want: the Angular one is picked up by default from `client/dist/console/browser`, the Lit one with
+```bash
+make client        # or: cd client && npm start
+```
+
+### The Lit console — `http://localhost:5273`
+
+```bash
+make client-lit    # or: cd client-lit && npm run dev
+```
+
+A different port on purpose, so both SPAs can be open at once against the one server.
+
+### The hypermedia console — `http://127.0.0.1:4433/ds`
+
+Nothing to start and nothing to install: the running server renders it. One Datastar page,
+patched live by `backend/src/datastar.rs` over a single SSE stream. Its files are in
+`client-datastar/` (override with `DATASTAR_DIR`), and there is no build step — edit
+`index.html` or `styles.css` and reload. `make client-datastar` just prints this.
+
+### One process, the way it ships
+
+The server can serve a built SPA itself, so the whole app is one binary on one port with the
+hypermedia page still at `/ds`:
+
+```bash
+make serve-lit         # builds client-lit, then serves it from the server
+make serve-angular     # the same for the Angular build
+```
+
+Under the hood that is `STATIC_DIR`: the Angular build is picked up by default from
+`client/dist/console/browser`, and any other build with
 `STATIC_DIR=client-lit/dist cargo run -p wt-server`.
 
-Other tasks:
+### All three at once
+
+The point of the comparison is worth seeing directly. With the server running, open
+<http://localhost:4200>, <http://localhost:5273> and <http://127.0.0.1:4433/ds> side by side,
+press **Connect** in the two SPAs, and say something in any of the three room panels: it arrives
+in all of them, because they share one broadcast bus on the server — three paradigms, one
+application.
+
+## Testing, one at a time
+
+Each side is tested on its own; `make test` is only the three of them in sequence.
 
 ```bash
-cd client && npm test            # vitest, covers the framing logic
-cd client-lit && npm test        # the same specs, plus a store spec, no harness
-cd client && npm run format      # prettier (same command in client-lit)
-cargo test --workspace           # framing, validation, compute
-cargo clippy --workspace --all-targets
-make check                       # all of the above
+make test-server        # cargo test --workspace: framing, validation, compute,
+                        # and the WebSocket fallback end to end against a real socket
+make test-client        # vitest in client/      — 42 specs
+make test-client-lit    # vitest in client-lit/  — 47 specs
+make test-datastar      # smoke-tests /ds, /ds/datastar.js and /ds/stream
+                        # (needs 'make server' running in another terminal)
+```
+
+The vitest suites run under plain Node with no DOM and no test harness, against the real
+committed wasm binary — that is deliberately where the logic that can be subtly wrong lives. The
+two clients share most of their spec files verbatim. The hypermedia page has no unit tests of
+its own on purpose: its logic *is* the server's, covered by `make test-server`, so what is worth
+checking separately is only that its routes answer.
+
+Linting and production builds are split the same way:
+
+```bash
+make check-server       # clippy -D warnings, cargo test, fmt --check, and the guard that
+                        # shared/ still compiles for wasm32-unknown-unknown
+make check-client       # vitest + production build, Angular
+make check-client-lit   # vitest + production build, Lit
+make check              # all three
+make fmt                # rustfmt and prettier across every side
 ```
 
 ## Desktop builds
@@ -79,15 +139,22 @@ server, the certificate, and the console are all there — nothing else to insta
 console is baked in is a packaging flag, not a code change; the Rust shell is identical for both.
 
 ```bash
-cd client-lit && npm run build          # or: cd client && npm run build
-cd desktop
-npx @tauri-apps/cli build                                        # the Lit console
-npx @tauri-apps/cli build --config tauri.angular.conf.json       # the Angular console
+make desktop-dev        # run it live against the Lit build, with a devtools window
+make desktop            # bundle the Lit console
+make desktop-angular    # bundle the Angular console
 ```
+
+Each target builds the frontend it needs first. The plain commands underneath are
+`cd desktop && npx @tauri-apps/cli build`, with
+`--config tauri.angular.conf.json` for the Angular variant.
 
 Building needs the platform webview toolchain (on Debian/Ubuntu:
 `libwebkit2gtk-4.1-dev libgtk-3-dev` and friends; nothing extra on Windows). The `desktop/` crate
 deliberately opts out of the Cargo workspace so that `make check` never needs any of that.
+
+Bundles land in `desktop/target/release/bundle/` — `.deb` and `.AppImage` on Linux, an NSIS
+installer on Windows. To smoke-test a built one, launch it and read the masthead: the transport
+pill names what carried the session, and the selector beside it forces a particular lane.
 
 Windows executables have to be built on Windows — the
 `.github/workflows/desktop.yml` workflow builds all four artifacts (Lit and Angular, Windows NSIS
@@ -118,10 +185,21 @@ runtime swap (`Builder::<tauri::Cef>` plus the `cef_entry_point` attribute that 
 renderer subprocesses from booting a second server). It is pinned to an exact branch revision
 and kept out of the release workflow on purpose: the branch is unreleased and moving, CEF adds
 roughly 170 MB to a bundle, and the stable shell's WebSocket-plus-IPC story on Linux is already
-verified end to end. Build it from the Actions tab (`desktop-cef` workflow) or locally with the
-branch's CLI — the first build downloads about a gigabyte of CEF binaries, which is also why it
-cannot build inside network-restricted sandboxes. When `feat/cef` ships in a Tauri release, the
-intent is for `desktop/cef/` to fold into `desktop/` as a cargo feature.
+verified end to end. The easy route is the Actions tab (`desktop-cef` workflow); locally it needs
+the branch's own CLI, because its bundler is what knows how to lay CEF's libraries out beside the
+executable:
+
+```bash
+cargo install tauri-cli --git https://github.com/tauri-apps/tauri \
+  --rev 4af26a3f7f8b692d62cca549bbacd93f5ce90b41   # the revision desktop/cef pins
+make desktop-cef
+```
+
+The first build downloads about a gigabyte of CEF binaries from a single CDN, which is also why
+it cannot build inside network-restricted sandboxes. When `feat/cef` ships in a Tauri release,
+the intent is for `desktop/cef/` to fold into `desktop/` as a cargo feature.
+
+## Build and toolchain notes
 
 `Cargo.lock` is committed: this workspace builds a binary rather than a library, so pinning the
 resolved dependency versions is what you want.
@@ -138,14 +216,19 @@ because an unrelated mingw `gcc` is first on `PATH`. `rustup set default-host
 x86_64-pc-windows-msvc` switches it, or build one-off with
 `cargo +stable-x86_64-pc-windows-msvc run`.
 
-Open <http://localhost:4200> in Chrome or Edge 97+, press **Connect**. Open a second tab to see the
-room broadcast fan out across sessions.
+## Which browser
+
+WebTransport itself needs Chrome or Edge 97+, which is what the SPAs' `Connect` button reaches
+for first.
 
 Firefox and Safari don't ship WebTransport yet, and plenty of networks block UDP. Either way the
 console falls back to a WebSocket and keeps working — see [When QUIC is
 blocked](#when-quic-is-blocked). The transport in use is named in the masthead, and the selector
 beside it forces one or the other, which is the only way to exercise the fallback on a network
 where QUIC is fine.
+
+The hypermedia console at `/ds` has no such requirement: server-sent events work everywhere, and
+holding no transport in the browser is precisely its trade.
 
 ## The certificate problem, and how this handles it
 
@@ -261,6 +344,10 @@ GET  /health         {"status":"ok"}
 GET  /telemetry      the same numbers the push lane carries, same shape
 POST /api/request    a Request in, a Reply out — the same op set as plain JSON
 GET  /ws             the WebSocket fallback
+GET  /ds             the hypermedia console: the page, its stylesheet, the runtime
+GET  /ds/stream      its one SSE stream — signal patches and HTML fragments
+POST /ds/request     what its buttons post; answered by the same app::answer
+POST /ds/say         what its room posts, published on the same broadcast bus
 ```
 
 `POST /api/request` deserializes the identical `Request` enum and calls the identical
@@ -412,14 +499,17 @@ shared/             code that runs on the server and, through wasm, in the brows
 
 backend/            the wt-server binary
   src/
-    main.rs       certificate, the listeners, graceful degradation when QUIC won't bind
+    main.rs       the tokio entry point, and nothing else
+    boot.rs       certificate, the listeners, graceful degradation when QUIC won't bind;
+                  here rather than in main.rs so the desktop shell embeds the same server
     lib.rs        the module map, and why the pieces are split this way
     app.rs        the business layer: one Request in, one Reply out. Transport-free
     session.rs    what a session does, written once against a Link
     link.rs       the seam: a channel in, a channel out, and a label
     wt.rs         the WebTransport adapter: QUIC channels into the seam
     ws.rs         the WebSocket adapter: one channel, four lanes, into the same seam
-    http.rs       discovery, /health, /telemetry, /api/request, /ws, static serving
+    datastar.rs   the hypermedia console: SSE out, form posts in, HTML rendered here
+    http.rs       discovery, /health, /telemetry, /api/request, /ws, /ds, static serving
     logging.rs    tracing layer that forwards log events to connected browsers
     framing.rs    the QUIC-stream adapters over the shared codec
     state.rs      counters, per-transport tallies, and the broadcast bus
@@ -480,6 +570,17 @@ client-lit/
     store/transport.spec.ts  drives the whole store in plain Node — no harness needed
     core/               the files above, byte-identical where marked in COMPARISON.md
     pages/  panels/     the same pages and panels, as web components
+
+client-datastar/      no package.json, no build, no application JavaScript
+  index.html          the whole console as data-* attributes
+  styles.css          the same design tokens, as one plain global stylesheet
+  datastar.js         the vendored 40 kB runtime, served at /ds/datastar.js
+
+desktop/              the console and the server as one executable
+  src/main.rs         boots the embedded server, then the webview
+  src/ipc.rs          the third transport adapter: Tauri IPC into the same Link seam
+  tauri.conf.json     bundles the Lit build; tauri.angular.conf.json overlays the other
+  cef/                the same shell on the experimental Chromium runtime
 ```
 
 Tests cover `core/`, which runs under plain Node with no Angular or DOM — deliberately where the
@@ -492,3 +593,8 @@ rather than in pieces.
 Component tests need a DOM and Angular's test harness; add the `@angular/build:unit-test` target to
 `angular.json` when you want them. The WebTransport link has no automated test — driving it needs a
 browser with a QUIC stack, so it is the one path still verified by hand.
+
+The hypermedia console has no suite of its own by design: everything it does happens in
+`backend/src/datastar.rs`, which `make test-server` covers along with the rest of the server.
+What is worth checking separately is only that its routes answer, which is what
+`make test-datastar` does against a running server.
