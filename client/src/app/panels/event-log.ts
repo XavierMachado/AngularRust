@@ -140,7 +140,7 @@ const LEVELS: LogLevel[] = ['error', 'warn', 'info', 'debug', 'trace'];
       padding: 12px;
       background: var(--paper);
       border-radius: 10px;
-      max-height: 340px;
+      max-height: var(--log-height, 340px);
       overflow-y: auto;
       display: flex;
       flex-direction: column;

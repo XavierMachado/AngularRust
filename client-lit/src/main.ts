@@ -1,4 +1,3 @@
-import '@shoelace-style/shoelace/dist/themes/light.css';
 import './styles.css';
 
 import initWasm from 'wt-wasm';

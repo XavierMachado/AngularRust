@@ -2,8 +2,6 @@ import { SignalWatcher } from '@lit-labs/signals';
 import { LitElement, css, html, svg } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 
-import '@shoelace-style/shoelace/dist/components/button/button.js';
-
 import { transport } from '../store/transport';
 import { controlStyles, panelStyles } from './shared-styles';
 
@@ -167,14 +165,14 @@ export class DatagramPanel extends SignalWatcher(LitElement) {
         }
 
         <div class="row">
-          <sl-button ?disabled=${!transport.online.get()} @click=${this.once}>Send one</sl-button>
-          <sl-button
+          <button ?disabled=${!transport.online.get()} @click=${this.once}>Send one</button>
+          <button
             class="ghost"
             ?disabled=${!transport.online.get() && !this.running}
             @click=${this.toggle}
           >
             ${this.running ? 'Stop' : 'Send twice a second'}
-          </sl-button>
+          </button>
         </div>
 
         <dl class="stats">

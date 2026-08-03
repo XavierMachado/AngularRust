@@ -83,12 +83,12 @@ export class AboutPage extends LitElement {
 
         <p>
           This is the same WebTransport console twice over: an Angular 20 build in
-          <code>client/</code> and this one, built from Lit 3, Shoelace, Vaadin Router, Vite and
-          TC39 signals in <code>client-lit/</code>. Both speak the identical wire protocol to the
-          same Rust server, share the same Rust-compiled wasm module, and carry the same teal and
-          magenta lane semantics. The protocol and transport layer — framing, lanes, negotiation,
-          both links — moved between them nearly unchanged, because it never depended on a framework
-          in the first place.
+          <code>client/</code> and this one, built from Lit 3, Vaadin Router, Vite and TC39 signals
+          in <code>client-lit/</code>. Both speak the identical wire protocol to the same Rust
+          server, share the same Rust-compiled wasm module, the same hand-rolled design system, and
+          the same three routed pages. The protocol and transport layer — framing, lanes,
+          negotiation, both links — moved between them nearly unchanged, because it never depended
+          on a framework in the first place.
         </p>
 
         <table>
@@ -113,11 +113,11 @@ export class AboutPage extends LitElement {
             <tr>
               <td>UI controls</td>
               <td>hand-styled native elements</td>
-              <td>Shoelace, themed with the same tokens</td>
+              <td>the same, adopted per shadow root</td>
             </tr>
             <tr>
               <td>Routing</td>
-              <td>none (single page)</td>
+              <td>Angular Router (same three routes)</td>
               <td>Vaadin Router (this page is lazy-loaded)</td>
             </tr>
             <tr>
@@ -132,13 +132,13 @@ export class AboutPage extends LitElement {
             </tr>
             <tr>
               <td>Installed packages</td>
-              <td>444</td>
-              <td>80</td>
+              <td>445</td>
+              <td>69</td>
             </tr>
             <tr>
               <td>Initial payload, gzipped</td>
-              <td>75.5 kB</td>
-              <td>74.3 kB (+7 kB lazy)</td>
+              <td>100.3 kB</td>
+              <td>37.7 kB</td>
             </tr>
           </tbody>
         </table>

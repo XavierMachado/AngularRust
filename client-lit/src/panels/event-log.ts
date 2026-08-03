@@ -3,14 +3,6 @@ import { LitElement, css, html } from 'lit';
 import { customElement, query, state } from 'lit/decorators.js';
 import { repeat } from 'lit/directives/repeat.js';
 
-import '@shoelace-style/shoelace/dist/components/button/button.js';
-import '@shoelace-style/shoelace/dist/components/copy-button/copy-button.js';
-import '@shoelace-style/shoelace/dist/components/input/input.js';
-import type SlInput from '@shoelace-style/shoelace/dist/components/input/input.js';
-import '@shoelace-style/shoelace/dist/components/option/option.js';
-import '@shoelace-style/shoelace/dist/components/select/select.js';
-import type SlSelect from '@shoelace-style/shoelace/dist/components/select/select.js';
-
 import type { LogLevel } from '../core/protocol';
 import { transport, type LogLine } from '../store/transport';
 import { fmtTime } from './format';
@@ -53,19 +45,8 @@ export class EventLog extends SignalWatcher(LitElement) {
         align-items: center;
       }
 
-      sl-input {
-        width: 18ch;
-      }
-
-      sl-select {
-        width: 15ch;
-      }
-
-      sl-copy-button::part(button) {
-        border: 1px solid var(--rule);
-        border-radius: 999px;
-        padding: 8px 10px;
-        color: var(--ink);
+      input[type='search'] {
+        width: 16ch;
       }
 
       ol {
@@ -197,6 +178,7 @@ export class EventLog extends SignalWatcher(LitElement) {
   @state() private query_ = '';
   @state() private origin: 'all' | 'server' | 'client' = 'all';
   @state() private floor: LogLevel = 'debug';
+  @state() private copied = false;
   /** False once the reader scrolls up, so new lines stop yanking the view. */
   @state() private stuck = true;
 
@@ -241,42 +223,38 @@ export class EventLog extends SignalWatcher(LitElement) {
           </div>
 
           <div class="controls">
-            <sl-input
+            <input
               type="search"
-              clearable
               .value=${this.query_}
               placeholder="filter text"
               aria-label="Filter log text"
-              @sl-input=${(event: Event) => (this.query_ = (event.target as SlInput).value)}
-            ></sl-input>
+              @input=${(event: Event) => (this.query_ = (event.target as HTMLInputElement).value)}
+            />
 
-            <sl-select
+            <select
               .value=${this.origin}
               aria-label="Source"
-              @sl-change=${(event: Event) =>
-                (this.origin = (event.target as SlSelect).value as typeof this.origin)}
+              @change=${(event: Event) =>
+                (this.origin = (event.target as HTMLSelectElement).value as typeof this.origin)}
             >
-              <sl-option value="all">both sides</sl-option>
-              <sl-option value="server">server only</sl-option>
-              <sl-option value="client">client only</sl-option>
-            </sl-select>
+              <option value="all">both sides</option>
+              <option value="server">server only</option>
+              <option value="client">client only</option>
+            </select>
 
-            <sl-select
+            <select
               .value=${this.floor}
               aria-label="Lowest level"
-              @sl-change=${(event: Event) =>
-                (this.floor = (event.target as SlSelect).value as LogLevel)}
+              @change=${(event: Event) =>
+                (this.floor = (event.target as HTMLSelectElement).value as LogLevel)}
             >
-              ${LEVELS.map((level) => html`<sl-option value=${level}>${level} and up</sl-option>`)}
-            </sl-select>
+              ${LEVELS.map((level) => html`<option value=${level}>${level} and up</option>`)}
+            </select>
 
-            <sl-copy-button
-              .value=${this.exportText(visible)}
-              copy-label="Copy the filtered log"
-            ></sl-copy-button>
-            <sl-button class="ghost" size="small" @click=${() => transport.clearLog()}>
-              Clear
-            </sl-button>
+            <button class="ghost small" @click=${this.copy}>
+              ${this.copied ? 'Copied' : 'Copy'}
+            </button>
+            <button class="ghost small" @click=${() => transport.clearLog()}>Clear</button>
           </div>
         </header>
 
@@ -296,8 +274,8 @@ export class EventLog extends SignalWatcher(LitElement) {
                         ${line.text}
                         ${line.session ? html`<span class="chip">${line.session}</span>` : ''}
                         ${fieldsOf(line).map(
-                          ([name, value]) => html`<span class="field">${name}=${value}</span>`,
-                        )}
+                        ([name, value]) => html`<span class="field">${name}=${value}</span>`,
+                      )}
                       </span>
                     </li>
                   `,
@@ -305,11 +283,11 @@ export class EventLog extends SignalWatcher(LitElement) {
               : html`
                   <li class="empty">
                     ${
-                      total
-                        ? html`Nothing matches this filter. ${total} lines are hidden.`
-                        : html`Connect to start the log. The server replays its recent history on
-                          the way in.`
-                    }
+                    total
+                      ? html`Nothing matches this filter. ${total} lines are hidden.`
+                      : html`Connect to start the log. The server replays its recent history on the
+                        way in.`
+                  }
                   </li>
                 `
           }
@@ -352,9 +330,9 @@ export class EventLog extends SignalWatcher(LitElement) {
     this.stuck = true;
   };
 
-  /** The filtered view as plain text, ready to paste into an issue. */
-  private exportText(visible: LogLine[]): string {
-    return visible
+  /** Hands the filtered view to the clipboard, ready to paste into an issue. */
+  private copy = async (): Promise<void> => {
+    const text = this.visible()
       .map((line) => {
         const stamp = new Date(line.at).toISOString();
         const fields = fieldsOf(line)
@@ -367,7 +345,15 @@ export class EventLog extends SignalWatcher(LitElement) {
         );
       })
       .join('\n');
-  }
+
+    try {
+      await navigator.clipboard.writeText(text);
+      this.copied = true;
+      setTimeout(() => (this.copied = false), 1500);
+    } catch {
+      transport.note('app', 'The clipboard is not available in this context.', 'warn');
+    }
+  };
 }
 
 function short(source: string): string {

@@ -3,10 +3,6 @@ import { LitElement, css, html } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { repeat } from 'lit/directives/repeat.js';
 
-import '@shoelace-style/shoelace/dist/components/button/button.js';
-import '@shoelace-style/shoelace/dist/components/input/input.js';
-import type SlInput from '@shoelace-style/shoelace/dist/components/input/input.js';
-
 import { validateSay } from '../core/wasm';
 import { transport } from '../store/transport';
 import { fmtTime } from './format';
@@ -81,7 +77,7 @@ export class RoomPanel extends SignalWatcher(LitElement) {
         gap: 8px;
       }
 
-      sl-input {
+      input {
         flex: 1 1 auto;
         min-width: 0;
       }
@@ -150,17 +146,18 @@ export class RoomPanel extends SignalWatcher(LitElement) {
         </ol>
 
         <div class="row">
-          <sl-input
+          <input
+            type="text"
             .value=${this.draft}
             ?disabled=${!transport.online.get()}
             placeholder="Say something to every session"
             aria-label="Message"
-            @sl-input=${(event: Event) => (this.draft = (event.target as SlInput).value)}
+            @input=${(event: Event) => (this.draft = (event.target as HTMLInputElement).value)}
             @keydown=${(event: KeyboardEvent) => event.key === 'Enter' && this.send()}
-          ></sl-input>
-          <sl-button ?disabled=${!transport.online.get() || !this.draft.trim()} @click=${this.send}>
+          />
+          <button ?disabled=${!transport.online.get() || !this.draft.trim()} @click=${this.send}>
             Send
-          </sl-button>
+          </button>
         </div>
 
         ${

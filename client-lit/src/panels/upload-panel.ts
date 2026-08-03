@@ -2,9 +2,6 @@ import { SignalWatcher } from '@lit-labs/signals';
 import { LitElement, css, html } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 
-import '@shoelace-style/shoelace/dist/components/button-group/button-group.js';
-import '@shoelace-style/shoelace/dist/components/button/button.js';
-
 import { transport } from '../store/transport';
 import { controlStyles, panelStyles } from './shared-styles';
 
@@ -74,12 +71,12 @@ export class UploadPanel extends SignalWatcher(LitElement) {
         <div class="row">
           ${this.sizes.map(
             (size) => html`
-              <sl-button
+              <button
                 ?disabled=${this.busy || !transport.online.get()}
                 @click=${() => this.send(size)}
               >
                 ${this.label(size)}
-              </sl-button>
+              </button>
             `,
           )}
         </div>

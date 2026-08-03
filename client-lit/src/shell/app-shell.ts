@@ -3,13 +3,6 @@ import { Router } from '@vaadin/router';
 import { LitElement, css, html } from 'lit';
 import { customElement, query, state } from 'lit/decorators.js';
 
-import '@shoelace-style/shoelace/dist/components/button/button.js';
-import '@shoelace-style/shoelace/dist/components/input/input.js';
-import type SlInput from '@shoelace-style/shoelace/dist/components/input/input.js';
-import '@shoelace-style/shoelace/dist/components/option/option.js';
-import '@shoelace-style/shoelace/dist/components/select/select.js';
-import type SlSelect from '@shoelace-style/shoelace/dist/components/select/select.js';
-
 import { describeTransport } from '../core/negotiate';
 import { controlStyles } from '../panels/shared-styles';
 import { currentPath, routes } from '../router';
@@ -67,12 +60,8 @@ export class AppShell extends SignalWatcher(LitElement) {
         flex-wrap: wrap;
       }
 
-      .link sl-input {
-        width: 14ch;
-      }
-
-      .link sl-select {
-        width: 19ch;
+      .link input {
+        width: 12ch;
       }
 
       .pill {
@@ -236,32 +225,34 @@ export class AppShell extends SignalWatcher(LitElement) {
             ${
               transport.online.get()
                 ? html`
-                    <sl-button class="ghost" @click=${() => transport.disconnect()}>
-                      Disconnect
-                    </sl-button>
+                    <button class="ghost" @click=${() => transport.disconnect()}>Disconnect</button>
                   `
                 : html`
-                    <sl-select
+                    <select
                       .value=${transport.preference.get()}
                       ?disabled=${busy}
                       aria-label="Which transport to use"
-                      @sl-change=${(event: Event) =>
-                        transport.preference.set((event.target as SlSelect).value as Preference)}
+                      @change=${(event: Event) =>
+                      transport.preference.set(
+                        (event.target as HTMLSelectElement).value as Preference,
+                      )}
                     >
-                      <sl-option value="auto">Automatic</sl-option>
-                      <sl-option value="webtransport">WebTransport only</sl-option>
-                      <sl-option value="websocket">WebSocket only</sl-option>
-                    </sl-select>
-                    <sl-input
+                      <option value="auto">Automatic</option>
+                      <option value="webtransport">WebTransport only</option>
+                      <option value="websocket">WebSocket only</option>
+                    </select>
+                    <input
+                      type="text"
                       .value=${this.name}
                       placeholder="your name"
                       aria-label="Name to use in the room"
                       ?disabled=${busy}
-                      @sl-input=${(event: Event) => (this.name = (event.target as SlInput).value)}
-                    ></sl-input>
-                    <sl-button ?disabled=${busy} @click=${this.connect}>
+                      @input=${(event: Event) =>
+                      (this.name = (event.target as HTMLInputElement).value)}
+                    />
+                    <button ?disabled=${busy} @click=${this.connect}>
                       ${busy ? 'Connecting…' : 'Connect'}
-                    </sl-button>
+                    </button>
                   `
             }
           </div>

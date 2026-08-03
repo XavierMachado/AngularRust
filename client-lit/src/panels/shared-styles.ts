@@ -82,53 +82,79 @@ export const panelStyles = css`
 `;
 
 /**
- * Shoelace controls, wearing this app's identity: ink-filled pill buttons that
- * hover into the lane colour, the way the Angular client's native buttons do.
- * Lives in each component's shadow root because \`::part\` cannot be reached
- * from a document-level stylesheet across the host boundary.
+ * The control chrome, identical to the Angular client's global input and
+ * button rules. Native elements need no component library: the design was
+ * always a handful of CSS on `<button>` and `<input>`, and shadow DOM only
+ * means each component adopts it explicitly instead of inheriting a global.
  */
 export const controlStyles = css`
-  sl-button::part(base) {
-    border-radius: 999px;
+  input,
+  select {
+    font: 400 0.85rem/1 var(--font-data);
+    color: var(--ink);
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 9px 11px;
+  }
+
+  select {
+    font-size: 0.74rem;
+    padding: 9px 10px;
+  }
+
+  input:disabled {
+    background: var(--paper);
+    color: var(--ink-2);
+  }
+
+  button {
     font: 500 0.78rem/1 var(--font-body);
-    background: var(--ink);
-    border-color: var(--ink);
     color: var(--surface);
+    background: var(--ink);
+    border: 1px solid var(--ink);
+    border-radius: 999px;
+    padding: 10px 16px;
+    cursor: pointer;
     transition:
       background 120ms ease,
       color 120ms ease;
   }
 
-  sl-button::part(base):hover {
+  button:hover:not(:disabled) {
     background: var(--reliable);
     border-color: var(--reliable);
-    color: var(--surface);
   }
 
-  .panel.unreliable sl-button::part(base):hover {
+  .panel.unreliable button:hover:not(:disabled) {
     background: var(--unreliable);
     border-color: var(--unreliable);
   }
 
-  sl-button.ghost::part(base) {
+  button.ghost {
     background: transparent;
     color: var(--ink);
     border-color: var(--rule);
   }
 
-  sl-button.ghost::part(base):hover {
-    background: var(--reliable);
-    border-color: var(--reliable);
+  button.ghost:hover:not(:disabled) {
     color: var(--surface);
   }
 
-  .panel.unreliable sl-button.ghost::part(base):hover {
-    background: var(--unreliable);
-    border-color: var(--unreliable);
+  button.small {
+    padding: 6px 12px;
+    font-size: 0.7rem;
   }
 
-  sl-input,
-  sl-select {
-    font-family: var(--font-data);
+  button:disabled,
+  input:disabled,
+  select:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--unreliable);
+    outline-offset: 2px;
   }
 `;

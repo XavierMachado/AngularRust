@@ -15,8 +15,8 @@ the certificate, framing messages, measuring round trips, and tearing down are a
 UI as they happen.
 
 ```
-client/      Angular 20, standalone components, zoneless, signals
-client-lit/  the same console again: Lit 3, Shoelace, Vaadin Router, Vite, TC39 signals
+client/      Angular 20, standalone components, zoneless, signals, Angular Router
+client-lit/  the same console again: Lit 3, Vaadin Router, Vite, TC39 signals
 backend/     Rust, wtransport 0.7, tokio, axum — the wt-server binary
 shared/      Rust that runs on both sides: protocol, framing, lanes, validation, compute
 wasm/        wasm-bindgen bindings over shared/, which both clients import
@@ -387,8 +387,10 @@ client/
     main.ts             loads the wasm module, then boots Angular
     styles.css          the design tokens live here
     app/
-      app.config.ts               zoneless, plus the global error handler
-      app.ts                      layout, masthead, telemetry strip
+      app.config.ts               zoneless, the router, plus the global error handler
+      app.routes.ts               three routes; /log and /about load lazily
+      app.ts                      the shell: masthead, connection controls, nav, outlet
+      pages/                      console (ledger + panels), log, about
       core/transport.service.ts   the store, and which transport carries it
       core/link.ts                what the console needs from a transport
       core/webtransport-link.ts   a channel per lane
@@ -407,6 +409,18 @@ client/
       core/webtransport.types.ts  browser API typings
       core/error-handler.ts       uncaught browser errors, into the same log
       panels/                     one component per lane, plus the log viewer
+
+client-lit/
+  package.json          four runtime deps: lit, @lit-labs/signals, @vaadin/router, wt-wasm
+  vite.config.ts        port 5273; keeps wt-wasm out of the pre-bundle
+  src/
+    main.ts             loads the wasm module, then the shell
+    router.ts           the same three routes, lazy the same way
+    shell/app-shell.ts  the same shell, as a web component
+    store/transport.ts  the same store, on TC39 signals instead of Angular's
+    store/transport.spec.ts  drives the whole store in plain Node — no harness needed
+    core/               the files above, byte-identical where marked in COMPARISON.md
+    pages/  panels/     the same pages and panels, as web components
 ```
 
 Tests cover `core/`, which runs under plain Node with no Angular or DOM — deliberately where the

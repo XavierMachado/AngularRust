@@ -2,10 +2,6 @@ import { SignalWatcher } from '@lit-labs/signals';
 import { LitElement, css, html } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 
-import '@shoelace-style/shoelace/dist/components/button/button.js';
-import '@shoelace-style/shoelace/dist/components/input/input.js';
-import type SlInput from '@shoelace-style/shoelace/dist/components/input/input.js';
-
 import type { Reply, Request } from '../core/protocol';
 import { fibLocal } from '../core/wasm';
 import { transport } from '../store/transport';
@@ -33,13 +29,13 @@ export class RequestPanel extends SignalWatcher(LitElement) {
         color: var(--ink-2);
       }
 
-      sl-input.text {
+      input[type='text'] {
         flex: 1 1 12ch;
         min-width: 0;
       }
 
-      sl-input.number {
-        width: 9ch;
+      input[type='number'] {
+        width: 7ch;
       }
 
       output {
@@ -101,49 +97,44 @@ export class RequestPanel extends SignalWatcher(LitElement) {
         </p>
 
         <div class="row">
-          <sl-input
-            class="text"
-            size="medium"
+          <input
+            type="text"
             .value=${this.text}
             ?disabled=${!transport.online.get()}
             placeholder="anything at all"
-            label=""
             aria-label="Text to send"
-            @sl-input=${(event: Event) => (this.text = (event.target as SlInput).value)}
-          ></sl-input>
-          <sl-button
-            ?disabled=${this.idle}
-            @click=${() => this.send({ op: 'echo', text: this.text })}
-          >
+            @input=${(event: Event) => (this.text = (event.target as HTMLInputElement).value)}
+          />
+          <button ?disabled=${this.idle} @click=${() => this.send({ op: 'echo', text: this.text })}>
             Echo
-          </sl-button>
-          <sl-button
+          </button>
+          <button
             ?disabled=${this.idle}
             @click=${() => this.send({ op: 'reverse', text: this.text })}
           >
             Reverse
-          </sl-button>
+          </button>
         </div>
 
         <div class="row">
           <label for="fib">Fibonacci</label>
-          <sl-input
+          <input
             id="fib"
-            class="number"
             type="number"
             min="0"
             max="185"
             .value=${String(this.n)}
             aria-label="Fibonacci index"
-            @sl-input=${(event: Event) => (this.n = Number((event.target as SlInput).value) || 0)}
-          ></sl-input>
-          <sl-button ?disabled=${this.idle} @click=${() => this.send({ op: 'fib', n: this.n })}>
+            @input=${(event: Event) =>
+              (this.n = Number((event.target as HTMLInputElement).value) || 0)}
+          />
+          <button ?disabled=${this.idle} @click=${() => this.send({ op: 'fib', n: this.n })}>
             On the server
-          </sl-button>
-          <sl-button @click=${this.fibHere}>In this tab</sl-button>
-          <sl-button class="ghost" ?disabled=${this.idle} @click=${() => this.send({ op: 'ping' })}>
+          </button>
+          <button @click=${this.fibHere}>In this tab</button>
+          <button class="ghost" ?disabled=${this.idle} @click=${() => this.send({ op: 'ping' })}>
             Ping
-          </sl-button>
+          </button>
         </div>
 
         <output>
