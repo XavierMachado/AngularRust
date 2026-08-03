@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "The main window listens for server pushes and calls the IPC transport commands.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

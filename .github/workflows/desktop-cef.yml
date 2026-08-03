@@ -1,0 +1,74 @@
+# Builds the EXPERIMENTAL CEF variant of the desktop shell (desktop/cef/):
+# the same console and embedded server, with Chromium via Tauri's in-progress
+# feat/cef runtime instead of WebKitGTK — which is what gives the Linux
+# desktop app real WebTransport.
+#
+# Manual-only on purpose: the variant tracks a pinned revision of an
+# unreleased branch, the first build downloads ~1 GB of CEF binaries, and the
+# result is a preview, not the distributed app (that is desktop.yml). Run it
+# from the Actions tab when you want a CEF build to try.
+
+name: desktop-cef (experimental)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    env:
+      # The same revision desktop/cef/Cargo.toml pins.
+      TAURI_CEF_REV: 4af26a3f7f8b692d62cca549bbacd93f5ce90b41
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux build tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl wget file libssl-dev \
+            libx11-dev libxcb1-dev libxrandr-dev libxi-dev librsvg2-dev
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/cef
+
+      - name: Build the Lit console
+        run: npm ci && npm run build
+        working-directory: client-lit
+
+      # The branch's own CLI, because its bundler knows how to lay CEF's
+      # libraries and resources out beside the executable.
+      - name: Cache the branch tauri-cli
+        id: cli-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri
+          key: tauri-cli-cef-${{ env.TAURI_CEF_REV }}
+
+      - name: Install the branch tauri-cli
+        if: steps.cli-cache.outputs.cache-hit != 'true'
+        run: >
+          cargo install tauri-cli
+          --git https://github.com/tauri-apps/tauri
+          --rev ${{ env.TAURI_CEF_REV }}
+
+      - name: Build the CEF desktop bundles
+        run: cargo tauri build --bundles deb appimage --verbose
+        working-directory: desktop/cef
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: console-cef-Linux
+          if-no-files-found: error
+          path: |
+            desktop/cef/target/release/bundle/deb/*.deb
+            desktop/cef/target/release/bundle/appimage/*.AppImage

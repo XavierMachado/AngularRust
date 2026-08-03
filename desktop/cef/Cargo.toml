@@ -1,0 +1,39 @@
+# EXPERIMENTAL: the desktop shell on Tauri's in-progress CEF runtime.
+#
+# WebKitGTK — the webview the stable shell gets on Linux — has no
+# WebTransport, so the Linux desktop app rides the WebSocket fallback. This
+# variant swaps the webview for Chromium via Tauri's `feat/cef` branch and
+# tauri-apps/cef-rs, which puts real QUIC datagrams inside the Linux desktop
+# app too.
+#
+# It is pinned to an exact revision of an unreleased branch on purpose: the
+# branch moves, and this manifest should only ever change deliberately. The
+# stable shell in ../ stays on released Tauri and is the one CI distributes;
+# treat this one as the preview it is. Expect the CEF binaries (~1 GB dev
+# download, ~170 MB shipped) the first build pulls.
+[package]
+name = "wt-desktop-cef"
+version = "0.1.0"
+edition = "2021"
+description = "WebTransport console desktop shell on the experimental CEF runtime"
+
+# Standalone on purpose, same as ../Cargo.toml; see the note there.
+[workspace]
+
+[[bin]]
+name = "wt-desktop-cef"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { git = "https://github.com/tauri-apps/tauri", rev = "4af26a3f7f8b692d62cca549bbacd93f5ce90b41", features = [] }
+
+[dependencies]
+tauri = { git = "https://github.com/tauri-apps/tauri", rev = "4af26a3f7f8b692d62cca549bbacd93f5ce90b41", features = ["cef"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+wt-server = { path = "../../backend" }
+wt-shared = { path = "../../shared" }
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
