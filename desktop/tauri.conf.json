@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "WebTransport Console",
+  "identifier": "dev.wtlab.console.lit",
+  "version": "0.1.0",
+  "build": {
+    "frontendDist": "../client-lit/dist",
+    "beforeBuildCommand": ""
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "WebTransport console",
+        "width": 1280,
+        "height": 940,
+        "minWidth": 760,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "appimage", "nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "shortDescription": "A live view of one connection carrying reliable streams and unreliable datagrams.",
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    }
+  }
+}

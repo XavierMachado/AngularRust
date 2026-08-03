@@ -39,6 +39,7 @@
 //! server offers, so one fetch is enough to negotiate.
 
 pub mod app;
+pub mod boot;
 pub mod clock;
 pub mod framing;
 pub mod http;
