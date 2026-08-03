@@ -1,0 +1,471 @@
+/*
+ * The same design system as the other two consoles — tokens and panel anatomy
+ * lifted from client/src/styles.css. No shadow DOM here, so this is one plain
+ * global stylesheet again, the way the Angular client has it.
+ */
+
+:root {
+  --paper: #e5eaf0;
+  --surface: #f7f9fb;
+  --ink: #0e1a2b;
+  --ink-2: #4d5e75;
+  --rule: #c2ccd8;
+  --reliable: #00707d;
+  --unreliable: #c4006a;
+  --alert: #9a4a00;
+
+  --font-display: 'Familjen Grotesk', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-data: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 0.95rem/1.55 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  display: block;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 40px 24px 64px;
+}
+
+h1,
+h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.eyebrow {
+  display: inline-block;
+  font: 500 0.66rem/1 var(--font-data);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ink-2);
+}
+
+/* Masthead ---------------------------------------------------------------- */
+
+.masthead {
+  margin-bottom: 26px;
+}
+
+.title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 6px 0 10px;
+}
+
+h1 {
+  margin: 0;
+  font: 700 clamp(2rem, 5vw, 2.9rem) / 1 var(--font-display);
+  letter-spacing: -0.03em;
+}
+
+.link {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.link input {
+  width: 12ch;
+}
+
+.pill {
+  font: 500 0.68rem/1 var(--font-data);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  color: var(--ink-2);
+  background: var(--surface);
+}
+
+.pill.online {
+  color: var(--reliable);
+  border-color: color-mix(in srgb, var(--reliable) 45%, transparent);
+  background: color-mix(in srgb, var(--reliable) 9%, var(--surface));
+}
+
+.pill.emulated {
+  border-style: dashed;
+}
+
+.detail {
+  margin: 0 0 14px;
+  color: var(--ink-2);
+  font-size: 0.86rem;
+  max-width: 72ch;
+}
+
+.readout,
+.telemetry {
+  display: grid;
+  gap: 12px 26px;
+  margin: 0;
+}
+
+.readout {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+
+.telemetry {
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  margin: 18px 0 22px;
+}
+
+dt {
+  font: 500 0.64rem/1 var(--font-data);
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  color: var(--ink-2);
+  margin-bottom: 4px;
+}
+
+dd {
+  margin: 0;
+  font: 400 0.85rem/1.35 var(--font-data);
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.telemetry dd {
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
+.split {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+/* Panels ------------------------------------------------------------------ */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  gap: 18px;
+  margin: 22px 0;
+}
+
+.panel {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 20px 22px 22px;
+  overflow: hidden;
+}
+
+.panel.reliable::before,
+.panel.unreliable::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+}
+
+.panel.reliable::before {
+  background: var(--reliable);
+}
+
+.panel.unreliable::before {
+  background: var(--unreliable);
+}
+
+.panel.emulated {
+  border-style: dashed;
+}
+
+.panel h2 {
+  margin: 2px 0 12px;
+  font-size: 1.25rem;
+}
+
+.panel.reliable .eyebrow {
+  color: var(--reliable);
+}
+
+.panel.unreliable .eyebrow {
+  color: var(--unreliable);
+}
+
+.lede {
+  margin: 0 0 14px;
+  color: var(--ink-2);
+  font-size: 0.83rem;
+  line-height: 1.5;
+}
+
+/* Controls ---------------------------------------------------------------- */
+
+input {
+  font: 400 0.85rem/1 var(--font-data);
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 9px 11px;
+}
+
+button {
+  font: 500 0.78rem/1 var(--font-body);
+  color: var(--surface);
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--reliable);
+  border-color: var(--reliable);
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--rule);
+}
+
+button.ghost:hover:not(:disabled) {
+  color: var(--surface);
+}
+
+:focus-visible {
+  outline: 2px solid var(--unreliable);
+  outline-offset: 2px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.row label {
+  font: 500 0.7rem/1 var(--font-data);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-2);
+}
+
+.row input[type='text'] {
+  flex: 1 1 12ch;
+  min-width: 0;
+}
+
+.row input[type='number'] {
+  width: 7ch;
+}
+
+output {
+  display: block;
+  margin-top: 4px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--paper);
+  font: 400 0.8rem/1.5 var(--font-data);
+  min-height: 2.6em;
+  overflow-wrap: anywhere;
+}
+
+.empty {
+  color: var(--ink-2);
+}
+
+.clip {
+  margin: 8px 0 0;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: var(--alert);
+}
+
+/* Room -------------------------------------------------------------------- */
+
+.lines {
+  list-style: none;
+  margin: 0 0 12px;
+  height: 190px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--paper);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.lines li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.lines li.empty {
+  display: block;
+  font-size: 0.82rem;
+}
+
+.who {
+  font: 500 0.72rem/1.6 var(--font-data);
+  color: var(--reliable);
+  white-space: nowrap;
+}
+
+.what {
+  overflow-wrap: anywhere;
+}
+
+.lines time {
+  font: 400 0.68rem/1.7 var(--font-data);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Log --------------------------------------------------------------------- */
+
+#log-lines {
+  list-style: none;
+  margin: 0;
+  padding: 12px;
+  background: var(--paper);
+  border-radius: 10px;
+  max-height: 340px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+#log-lines li {
+  display: grid;
+  grid-template-columns: 9ch 5ch 14ch 1fr;
+  gap: 10px;
+  font: 400 0.74rem/1.6 var(--font-data);
+  padding: 1px 0;
+}
+
+#log-lines li.empty {
+  display: block;
+  color: var(--ink-2);
+}
+
+#log-lines time {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+#log-lines .level {
+  font-size: 0.62rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  line-height: 2.1;
+  color: var(--ink-2);
+}
+
+#log-lines .source {
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#log-lines .text {
+  overflow-wrap: anywhere;
+}
+
+#log-lines li.warn .level,
+#log-lines li.warn .text {
+  color: var(--alert);
+}
+
+#log-lines li.error .level,
+#log-lines li.error .text {
+  color: var(--unreliable);
+  font-weight: 500;
+}
+
+#log-lines li.debug,
+#log-lines li.trace {
+  opacity: 0.72;
+}
+
+.foot {
+  margin: 8px 0 0;
+  font: 400 0.7rem/1.5 var(--font-data);
+  color: var(--ink-2);
+}
+
+/* ------------------------------------------------------------------------- */
+
+footer {
+  margin-top: 30px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+
+footer p {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+
+/* The empty-state lines are authored into the HTML; the first server-rendered
+   sibling retires them. */
+li.empty:not(:only-child) {
+  display: none;
+}
+
+ol::-webkit-scrollbar {
+  width: 10px;
+}
+
+ol::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border-radius: 999px;
+  border: 3px solid var(--paper);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

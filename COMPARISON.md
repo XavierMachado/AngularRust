@@ -166,6 +166,36 @@ seam, adding a whole new transport — Tauri IPC, in `desktop/src/ipc.rs` plus o
 - **Either way**, keep the core framework-free. It is the only part of this codebase that has now
   outlived a framework decision, twice.
 
+## Postscript: the hypermedia rendition
+
+`client-datastar/` answers a different question than the other two clients: not "which
+framework", but "why have a frontend stack at all". It is the console rebuilt as
+[Datastar](https://data-star.dev) hypermedia — one HTML page of `data-*` attributes, one
+stylesheet, a vendored 40 kB runtime, and a Rust module (`backend/src/datastar.rs`, no new
+crates) that renders every update server-side and streams it down one SSE connection. The same
+broadcast buses the sessions push through drive it, so chat fans out between this page and the
+SPAs both ways — verified in a real browser.
+
+| Metric | Angular | Lit stack | Datastar |
+| --- | ---: | ---: | ---: |
+| Initial payload, gzipped | 100.3 kB | 37.7 kB | **19.7 kB** |
+| npm packages installed | 445 | 69 | **0** |
+| Build step | Angular CLI | Vite + tsc | **none** |
+| Client-side code (lines) | 3,972 | 4,247 | 192 html + 471 css |
+| Server-side UI code (lines) | 0 | 0 | 389 (Rust) |
+
+The trade is architectural, not incremental. The hypermedia page holds no transport in the
+browser: no WebTransport, no WebSocket link, no datagrams, no upload lane, no offline wasm — the
+whole `core/` layer has nothing to attach to, and the page says so in its own third panel.
+Round trips are measured on the server because the server is where everything happens. Where the
+SPAs spend their bytes owning the connection, this page spends ~200 lines of attributes and lets
+the server own it.
+
+Read it as calibration for the main comparison: if an app is mostly server-state displayed live
+with modest interactions, the entire SPA question — Angular *or* Lit — may be the wrong question.
+This lab needs the SPAs, because the lab's subject is the client-side transport itself. An app
+that doesn't should look hard at the third column.
+
 ## Reproducing the numbers
 
 ```bash

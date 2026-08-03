@@ -43,6 +43,7 @@
 pub mod app;
 pub mod boot;
 pub mod clock;
+pub mod datastar;
 pub mod framing;
 pub mod http;
 pub mod link;

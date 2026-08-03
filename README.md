@@ -15,9 +15,10 @@ the certificate, framing messages, measuring round trips, and tearing down are a
 UI as they happen.
 
 ```
-client/      Angular 20, standalone components, zoneless, signals, Angular Router
-client-lit/  the same console again: Lit 3, Vaadin Router, Vite, TC39 signals
-desktop/     Tauri shell: either console + the embedded server as one executable
+client/          Angular 20, standalone components, zoneless, signals, Angular Router
+client-lit/      the same console again: Lit 3, Vaadin Router, Vite, TC39 signals
+client-datastar/ the hypermedia rendition: one page, no build, the server renders it live
+desktop/         Tauri shell: either console + the embedded server as one executable
 backend/     Rust, wtransport 0.7, tokio, axum — the wt-server binary
 shared/      Rust that runs on both sides: protocol, framing, lanes, validation, compute
 wasm/        wasm-bindgen bindings over shared/, which both clients import
@@ -49,6 +50,11 @@ cd client-lit && npm install && npm run dev   # http://localhost:5273  (Lit)
 ```
 
 Or via the Makefile: `make install`, then `make server` and `make client` (or `make client-lit`).
+
+The hypermedia console needs no third terminal and no install at all: the server itself serves
+it at **http://127.0.0.1:4433/ds** — one Datastar-powered page, rendered and patched live by
+`backend/src/datastar.rs` over a single SSE stream. Its files live in `client-datastar/`
+(override with `DATASTAR_DIR`); edit and reload, there is no build step.
 
 To serve a built frontend from the Rust server itself, point `STATIC_DIR` at whichever build you
 want: the Angular one is picked up by default from `client/dist/console/browser`, the Lit one with

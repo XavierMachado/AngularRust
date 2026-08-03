@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>WebTransport console · hypermedia</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="The same console, server-rendered: one SSE stream in, plain POSTs out."
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/ds/styles.css" />
+    <script type="module" src="/ds/datastar.js"></script>
+  </head>
+  <body>
+    <!--
+      The whole application state lives in this attribute and on the server.
+      There is no bundler, no build step and no application JavaScript: the
+      40 kB datastar runtime reads these data-* attributes, opens one SSE
+      stream, and the server patches the page from there.
+    -->
+    <main
+      data-signals='{"connected":false,"text":"the quick brown fox","n":90,"author":"visitor","draft":"","sessions":0,"wt":0,"ws":0,"ipc":0,"framesIn":0,"datagramsIn":0,"bytesIn":"0 B","uptime":"—"}'
+      data-on-load="@get('/ds/stream')"
+    >
+      <header class="masthead">
+        <p class="eyebrow">SSE · Hypermedia · the server drives this page</p>
+
+        <div class="title">
+          <h1>WebTransport console</h1>
+
+          <div class="link">
+            <span class="pill" data-class='{"online": $connected}' data-text="$connected ? 'online' : 'connecting'"></span>
+            <span class="pill emulated">sse</span>
+            <input type="text" data-bind-author aria-label="Name to use in the room" placeholder="your name" />
+          </div>
+        </div>
+
+        <p class="detail">
+          Server-rendered over one event stream. The other consoles negotiate a transport in the
+          browser; this page <em>is</em> the transport story: HTML fragments in, form posts out.
+        </p>
+
+        <dl class="readout">
+          <div>
+            <dt>Transport</dt>
+            <dd>SSE · HTTP · one stream in, POSTs out</dd>
+          </div>
+          <div>
+            <dt>Endpoint</dt>
+            <dd>/ds/stream</dd>
+          </div>
+          <div>
+            <dt>Session</dt>
+            <dd>a viewer, not a session — the server does not owe this page a socket</dd>
+          </div>
+        </dl>
+      </header>
+
+      <dl class="telemetry">
+        <div>
+          <dt>Sessions</dt>
+          <dd>
+            <span data-text="$sessions"></span>
+            <span class="split"
+              ><span data-text="$wt"></span> wt / <span data-text="$ws"></span> ws /
+              <span data-text="$ipc"></span> ipc</span
+            >
+          </dd>
+        </div>
+        <div>
+          <dt>Frames in</dt>
+          <dd data-text="$framesIn"></dd>
+        </div>
+        <div>
+          <dt>Datagrams in</dt>
+          <dd data-text="$datagramsIn"></dd>
+        </div>
+        <div>
+          <dt>Bytes in</dt>
+          <dd data-text="$bytesIn"></dd>
+        </div>
+        <div>
+          <dt>Server uptime</dt>
+          <dd data-text="$uptime"></dd>
+        </div>
+      </dl>
+
+      <div class="grid">
+        <section class="panel reliable">
+          <header>
+            <span class="eyebrow">One POST, one answer</span>
+            <h2>Ask the server</h2>
+          </header>
+
+          <p class="lede">
+            The same business layer the transports call, reached the oldest way there is. The
+            round-trip number is measured where a hypermedia app measures everything: on the
+            server.
+          </p>
+
+          <div class="row">
+            <input type="text" data-bind-text placeholder="anything at all" aria-label="Text to send" />
+            <button data-on-click="@post('/ds/request?op=echo')">Echo</button>
+            <button data-on-click="@post('/ds/request?op=reverse')">Reverse</button>
+          </div>
+
+          <div class="row">
+            <label for="fib">Fibonacci</label>
+            <input id="fib" type="number" min="0" max="185" data-bind-n aria-label="Fibonacci index" />
+            <button data-on-click="@post('/ds/request?op=fib')">On the server</button>
+            <button class="ghost" data-on-click="@post('/ds/request?op=ping')">Ping</button>
+          </div>
+
+          <output id="reply"><span class="empty">No reply yet.</span></output>
+        </section>
+
+        <section class="panel reliable">
+          <header>
+            <span class="eyebrow">Broadcast, server-rendered</span>
+            <h2>Room</h2>
+          </header>
+
+          <ol id="room-lines" class="lines">
+            <li class="empty">
+              Nothing said yet. Lines land here from every console — the SPAs included — as
+              server-rendered fragments.
+            </li>
+          </ol>
+
+          <div class="row">
+            <input
+              type="text"
+              data-bind-draft
+              data-on-keydown="evt.key === 'Enter' && @post('/ds/say')"
+              placeholder="Say something to every session"
+              aria-label="Message"
+            />
+            <button data-on-click="@post('/ds/say')">Send</button>
+          </div>
+          <p id="say-note" class="clip"></p>
+        </section>
+
+        <section class="panel unreliable emulated">
+          <header>
+            <span class="eyebrow">What this stack does not do</span>
+            <h2>No lanes here</h2>
+          </header>
+
+          <p class="lede">
+            No WebTransport, no WebSocket, no datagrams, no upload lane: a hypermedia client holds
+            no transport in the browser to exercise. That is not a missing feature — it is the
+            trade. Everything interactive on this page is a plain HTTP request, and everything
+            live is the server patching HTML over one SSE stream. Compare the ledger panels in
+            <code>client/</code> and <code>client-lit/</code> to see what owning the transport
+            buys, and this page to see what letting the server own it costs: almost nothing to
+            build, and no say in how the bytes travel.
+          </p>
+        </section>
+      </div>
+
+      <section class="panel">
+        <header>
+          <div class="heading">
+            <span class="eyebrow">The server's own account</span>
+            <h2>Log</h2>
+          </div>
+        </header>
+
+        <ol id="log-lines">
+          <li class="empty">Waiting for the stream. Recent history replays on connect.</li>
+        </ol>
+        <p class="foot">Times are UTC — the server formats these lines, not the browser.</p>
+      </section>
+
+      <footer>
+        <p>
+          This page is the hypermedia rendition of the console: <code>client-datastar/</code> is
+          one HTML file, one stylesheet and a vendored 40 kB runtime, with every fragment above
+          rendered by the same Rust server the other consoles connect to. No build step, no
+          package manager, no application JavaScript.
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>

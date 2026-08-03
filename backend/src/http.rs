@@ -42,6 +42,7 @@ use wt_shared::protocol::ServerPush;
 use wt_shared::protocol::TransportKind;
 
 use crate::app;
+use crate::datastar;
 use crate::state::AppState;
 use crate::ws;
 
@@ -82,6 +83,14 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/telemetry", get(telemetry))
         .route("/api/request", post(api_request))
         .route("/ws", get(ws::upgrade))
+        // The hypermedia console: one page, one SSE stream, two POSTs. See
+        // `datastar.rs` for why it is routed here rather than built anywhere.
+        .route("/ds", get(datastar::index))
+        .route("/ds/datastar.js", get(datastar::runtime))
+        .route("/ds/styles.css", get(datastar::styles))
+        .route("/ds/stream", get(datastar::stream))
+        .route("/ds/request", post(datastar::request))
+        .route("/ds/say", post(datastar::say))
         .with_state(state)
         // The Angular dev server is a different origin. Development only, and
         // note it does not apply to the WebSocket upgrade above.
